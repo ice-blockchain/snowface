@@ -1,8 +1,12 @@
-from flask import Blueprint, request
+from flask import Blueprint, request, Response
 import service
 
 blueprint = Blueprint("routes", __name__)
 
+_no_faces = "NO_FACES"
+_no_primary_metadata = "NO_PRIMARY_METADATA"
+_user_not_the_same = "USER_NOT_THE_SAME"
+_user_disabled = "USER_DISABLED"
 
 @blueprint.route("/")
 def home():
@@ -98,3 +102,34 @@ def analyze():
     )
 
     return demographies
+
+@blueprint.route("/similarity/<user_id>", methods=["POST"])
+def similar(user_id):
+    try:
+        bestIndex, euclidian, updateTime = service.check_similar_user_and_register_metadata(user_id, request.files.getlist("image"))
+        return  {"userID":user_id, "bestIndex":bestIndex, "distance": euclidian, "secondaryPhotoUpdatedAt":updateTime}
+    except service.MetadataNotFound as e:
+        return {"message": str(e), "code":_no_primary_metadata}, 400
+    except service.NotSameUser as e:
+        return {"message": str(e), "code":_user_not_the_same}, 400
+    except service.NoFaces as e:
+        return {"message": str(e), "code":_no_faces}, 400
+    except Exception as e:
+        return {"message":"oops, an error occured"}, 500
+
+
+@blueprint.route("/primary_photo/<user_id>", methods=["POST"])
+def primary_photo(user_id):
+    try:
+        updatedAt = service.set_primary_photo(user_id, request.files["image"])
+        return {"userID": user_id, "primaryPhotoUpdatedAt":updatedAt}
+    except service.NoFaces as e:
+        return {"message": str(e), "code":_no_faces}, 400
+    except service.UserDisabled as e:
+        return {"message": str(e), "code":_user_disabled}, 400
+
+@blueprint.route("/status/<user_id>", methods=["GET"])
+def user_status(user_id):
+    status = service.get_status(user_id)
+    return status
+
