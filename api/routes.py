@@ -1,6 +1,8 @@
 from flask import Blueprint, request, Response
 import service
 
+from auth import auth_required
+
 blueprint = Blueprint("routes", __name__)
 
 _no_faces = "NO_FACES"
@@ -104,7 +106,8 @@ def analyze():
     return demographies
 
 @blueprint.route("/similarity/<user_id>", methods=["POST"])
-def similar(user_id):
+@auth_required
+def similar(current_user, user_id):
     try:
         bestIndex, euclidian, updateTime = service.check_similar_user_and_register_metadata(user_id, request.files.getlist("image"))
         return  {"userID":user_id, "bestIndex":bestIndex, "distance": euclidian, "secondaryPhotoUpdatedAt":updateTime}
@@ -119,7 +122,8 @@ def similar(user_id):
 
 
 @blueprint.route("/primary_photo/<user_id>", methods=["POST"])
-def primary_photo(user_id):
+@auth_required
+def primary_photo(current_user, user_id):
     try:
         updatedAt = service.set_primary_photo(user_id, request.files["image"])
         return {"userID": user_id, "primaryPhotoUpdatedAt":updatedAt}
@@ -129,7 +133,8 @@ def primary_photo(user_id):
         return {"message": str(e), "code":_user_disabled}, 400
 
 @blueprint.route("/status/<user_id>", methods=["GET"])
-def user_status(user_id):
+@auth_required
+def user_status(current_user, user_id):
     status = service.get_status(user_id)
     return status
 
