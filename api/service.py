@@ -60,6 +60,9 @@ def analyze(img_path, actions, detector_backend, enforce_detection, align):
 
 
 def set_primary_photo(user_id: str, photo_stream):
+    user = _get_user(user_id)
+    if user is not None and user["disabled_at"] > 0:
+        raise UserDisabled(f"User {user_id} was disabled at {user['disabled_at']}")
     existing_md = _get_primary_metadata(user_id)
     if existing_md is not None:
         raise MetadataAlreadyExists(f"User {user_id} already owns primary face uploaded at {existing_md['uploaded_at']}")

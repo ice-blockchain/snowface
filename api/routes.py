@@ -133,7 +133,7 @@ def primary_photo(current_user, user_id):
     except service.MetadataAlreadyExists as e:
         return {"message": str(e), "code":_already_uploaded}, 409
     except service.UserDisabled as e:
-        return {"message": str(e), "code":_user_disabled}, 400
+        return {"message": str(e), "code":_user_disabled}, 403
 
 @blueprint.route("/status/<user_id>", methods=["GET"])
 @auth_required
