@@ -39,8 +39,8 @@ def init_collection(name, create_fn):
     return db
 
 def init_schema():
-    init_collection("users", create_users_collection)
-    init_collection("faces", create_faces_collection)
+    _users_collection = init_collection("users", create_users_collection)
+    _faces_collection = init_collection("faces", create_faces_collection)
 
 def create_users_collection(name):
     fields = [
@@ -49,6 +49,7 @@ def create_users_collection(name):
         FieldSchema(name="emotions", dtype=DataType.VARCHAR, max_length=128),
         FieldSchema(name="session_started_at", dtype=DataType.INT64),
         FieldSchema(name="disabled_at", dtype=DataType.INT64),
+        FieldSchema(name="emotion_sequence", dtype=DataType.INT64),
         FieldSchema(name="best_pictures_score", dtype=DataType.FLOAT_VECTOR, dim = 45),
     ]
     schema = CollectionSchema(
@@ -222,26 +223,32 @@ def set_primary_metadata(user_id:str, metadata: list, url: str):
     # t = time.time()
     # faces.flush()
     # print("flush took", time.time() - t)
-    return {
-        "user_picture_id": pk,
-        "user_id": user_id,
-        "picture_id": np.int32(_picture_primary),
-        "face_metadata": metadata,
-        "url": url,
-        "uploaded_at": now
-    }, insertedRows
-def delete_metadata(pk:str):
-    faces = get_faces_collection()
-    faces.delete(f"user_picture_id in [\"{pk}\"]")
-def disable_user(user_id: str):
+    return now, insertedRows
+
+def update_user(user_id: str, session_id: str, emotions: str, session_started_at, disabled_at, emotion_sequence):
     users = get_users_collection()
     user = get_user(user_id)
     now = int(time.time()*1e9)
     if user is not None:
-        insertedRows = users.upsert([[user_id], [user["session_id"]], [user["emotions"]],[user["session_started_at"]],[now], [user["best_pictures_score"]]]).upsert_count
+        insertedRows = users.upsert([[user_id], [session_id], [emotions], [session_started_at], [disabled_at], [emotion_sequence], [user["best_pictures_score"]]]).upsert_count
     else:
-        insertedRows = users.upsert([[user_id], [""], [""],[0],[now], [np.array([0.0]*45)]]).upsert_count
-    return now, insertedRows > 0
+        insertedRows = users.upsert([[user_id], [session_id], [emotions], [now], [0], [0], [np.array([0.0]*45)]]).upsert_count
+
+    return insertedRows > 0
+
+def update_best_scores(user_id: str, best_pictures_score):
+    users = get_users_collection()
+    user = get_user(user_id)
+    insertedRows = users.upsert([[user_id], [user['session_id']], [user['emotions']], [user['session_started_at']], [user['disabled_at']], [user["emotion_sequence"]], [best_pictures_score]]).upsert_count
+
+    return insertedRows > 0
+
+def update_emotion_sequence(user_id: str, emotion_sequence: int):
+    users = get_users_collection()
+    user = get_user(user_id)
+    insertedRows = users.upsert([[user_id], [user['session_id']], [user['emotions']], [user['session_started_at']], [user['disabled_at']], [emotion_sequence], user["best_pictures_score"]]).upsert_count
+
+    return insertedRows > 0
 
 def get_user(user_id: str):
     users = get_users_collection()
@@ -249,8 +256,9 @@ def get_user(user_id: str):
         expr = f"user_id == \"{user_id}\"",
         offset = 0,
         limit = 1,
-        output_fields = ["user_id","session_id","emotions","session_started_at", "disabled_at", "best_pictures_score"],
+        output_fields = ["user_id", "session_id", "emotions", "session_started_at", "disabled_at", "emotion_sequence", "best_pictures_score"],
     )
     if len(res) == 0:
         return None
+
     return res[0]

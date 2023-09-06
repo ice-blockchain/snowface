@@ -8,6 +8,7 @@ from minio_uploader import _client_with_initialized_bucket
 from service import init_models
 from routes import init_rate_limiters
 import os
+
 def create_app():
     app = Flask(__name__)
     app.register_blueprint(blueprint)
@@ -24,10 +25,16 @@ def create_app():
     app.config['METADATA_UPDATED_CALLBACK_URL'] = os.environ.get("METADATA_UPDATED_CALLBACK_URL")
     app.config['PRIMARY_PHOTO_ERROR_LIMIT'] = os.environ.get("PRIMARY_PHOTO_ERROR_LIMIT")
     init_rate_limiters(app)
+    app.config['IMG_STORAGE_PATH'] = os.environ.get('IMG_STORAGE_PATH')
+    app.config['SESSION_DURATION'] = os.environ.get('SESSION_DURATION')
+    app.config['LIMIT_RATE'] = os.environ.get('LIMIT_RATE')
+    app.config['BASE_SIMILARITY_ENDPOINT'] = os.environ.get('BASE_SIMILARITY_ENDPOINT')
+
     with app.app_context():
         is_gunicorn = "gunicorn" in os.environ.get("SERVER_SOFTWARE", "")
         if not is_gunicorn:
             when_ready("mock")
+
     return app
 
 def when_ready(arbiter):

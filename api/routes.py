@@ -8,6 +8,11 @@ from limits import parse
 import logging
 blueprint = Blueprint("routes", __name__)
 
+_session_not_found = "SESSION_NOT_FOUND"
+_session_timed_out = "SESSION_TIMED_OUT"
+_wrong_emotion = "WRONG_EMOTION"
+_invalid_properties = "INVALID_PROPERTIES"
+_rate_limit_exceeded = "RATE_LIMIT_EXCEEDED"
 _no_faces = "NO_FACES"
 _no_primary_metadata = "NO_PRIMARY_METADATA"
 _user_not_the_same = "USER_NOT_THE_SAME"
@@ -177,5 +182,67 @@ def user_status(current_user, user_id):
         return status
     except Exception as e:
         logging.error(e, exc_info=e)
+        return {"message":"oops, an error occured"}, 500
+
+@blueprint.route("/v1w/face-auth/emotions/<user_id>/<session_id>", methods=["PUT"])
+@auth_required
+def additional_emotion(user_id, session_id):
+    try:
+        emotions_list, session_id, disabled = service.add_additional_emotion(user_id=user_id, session_id=session_id)
+        if disabled == True:
+            return {'message': 'user is blocked', 'code': _user_disabled}, 403
+
+        return {'emotions': emotions_list, 'session_id': session_id}
+    except service.SessionTimeOutException as e:
+        return {'message': str(e), 'code': _session_timed_out}, 403
+    except service.SessionNotFoundException as e:
+        return {'message': str(e), 'code': _session_not_found}, 403
+    # except OSError as e:
+    #     return {"message":"oops, an error occured"}, 500
+    except service.UpsertException as e:
+        return {"message":"oops, an error occured"}, 500
+    except Exception as e:
+        return {"message":"oops, an error occured"}, 500
+
+@blueprint.route("/v1w/face-auth/emotions/<user_id>", methods=["POST"])
+@auth_required
+def emotions(user_id):
+    try:
+        emotions_list, session_id, disabled = service.emotions(user_id=user_id)
+        if disabled == True:
+            return {'message': 'user is blocked', 'code': _user_disabled}, 403
+
+        return {'emotions': emotions_list, 'session_id': session_id}
+    except service.SessionTimeOutException as e:
+        return {'message': str(e), 'code': _session_timed_out}, 403
+    except service.RateLimitException as e:
+        return {'message': str(e), 'code': _rate_limit_exceeded}, 403
+    except OSError as e:
+        return {"message":"oops, an error occured"}, 500
+    except service.UpsertException as e:
+        return {"message":"oops, an error occured"}, 500
+    except Exception as e:
+        return {"message":"oops, an error occured"}, 500
+
+@blueprint.route("/v1w/face-auth/liveness/<user_id>/<session_id>", methods=["POST"])
+@auth_required
+def liveness(user_id, session_id):
+    images = request.files.getlist("image")
+    if images is None:
+        return {"message": "you must pass images input", 'code': _invalid_properties}, 400
+    if len(images) != 15:
+        return {"message": "wrong number of images", 'code': _invalid_properties}, 400
+
+    try:
+        result, session_ended = service.process_images(user_id=user_id, session_id=session_id, images=images)
+
+        return {'result': result, 'session_ended': session_ended}
+    except service.SessionNotFoundException as e:
+        return {'message': str(e), 'code': _session_not_found}, 404
+    except service.SessionTimeOutException as e:
+        return {'message': str(e), 'code': _session_timed_out}, 403
+    except service.IOException as e:
+        return {"message":"oops, an error occured"}, 500
+    except Exception as e:
         return {"message":"oops, an error occured"}, 500
 
