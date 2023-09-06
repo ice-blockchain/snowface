@@ -9,6 +9,7 @@ _no_faces = "NO_FACES"
 _no_primary_metadata = "NO_PRIMARY_METADATA"
 _user_not_the_same = "USER_NOT_THE_SAME"
 _user_disabled = "USER_DISABLED"
+_already_uploaded = "ALREADY_UPLOADED"
 
 @blueprint.route("/")
 def home():
@@ -129,6 +130,8 @@ def primary_photo(current_user, user_id):
         return {"userID": user_id, "primaryPhotoUpdatedAt":updatedAt}
     except service.NoFaces as e:
         return {"message": str(e), "code":_no_faces}, 400
+    except service.MetadataAlreadyExists as e:
+        return {"message": str(e), "code":_already_uploaded}, 409
     except service.UserDisabled as e:
         return {"message": str(e), "code":_user_disabled}, 400
 

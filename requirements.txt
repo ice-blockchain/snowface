@@ -16,3 +16,4 @@ pymilvus==2.3.0
 pyjwt
 firebase-admin
 python-dotenv
+minio

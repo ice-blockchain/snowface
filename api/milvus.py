@@ -6,8 +6,8 @@ from pymilvus import CollectionSchema, FieldSchema, DataType, utility, connectio
 import numpy as np
 
 _conn_prefix = "default"
-_g_faces = "faces"
-_g_disabled_users = "disabled_users"
+_faces_collection = None
+_disabled_users_collection = None
 
 _picture_primary = 0
 _picture_secondary = 1
@@ -121,6 +121,7 @@ def create_faces_collection(name):
     return faces
 
 def get_faces_collection():
+    global _faces_collection
     if not connections.has_connection(_conn_prefix):
         connections.connect(
             alias=_conn_prefix,
@@ -128,12 +129,13 @@ def get_faces_collection():
             password=os.getenv("MILVUS_PASSWORD","Milvus"),
             uri=os.getenv("MILVUS_URI", "http://localhost:19530")
         )
-    if _g_faces not in g:
-        g.faces = init_collection("faces", create_faces_collection)
+    if _faces_collection is None:
+        _faces_collection = init_collection("faces", create_faces_collection)
 
-    return g.faces
+    return _faces_collection
 
 def get_disabled_users_collection():
+    global _disabled_users_collection
     if not connections.has_connection(_conn_prefix):
         connections.connect(
             alias=_conn_prefix,
@@ -141,10 +143,10 @@ def get_disabled_users_collection():
             password=os.getenv("MILVUS_PASSWORD","Milvus"),
             uri=os.getenv("MILVUS_URI", "http://localhost:19530")
         )
-    if _g_disabled_users not in g:
-        g.disabled_users = init_collection("disabled_users", create_disabled_users_collection)
+    if _disabled_users_collection is None:
+        _disabled_users_collection = init_collection("disabled_users", create_disabled_users_collection)
 
-    return g.disabled_users
+    return _disabled_users_collection
 
 def get_primary_metadata(user_id):
     faces = get_faces_collection()
@@ -198,18 +200,18 @@ def find_similar_users(user_id: str,metadata: list, threshold: float):
     return found_user_ids, distances
 
 
-def update_secondary_metadata(user_id:str, metadata: list):
+def update_secondary_metadata(user_id:str, metadata: list, url: str):
     faces = get_faces_collection()
     pk = f"{user_id}~{_picture_secondary}"
     now = int(time.time()*1e9)
-    rowsCount = faces.upsert([[pk],[user_id],[np.int32(_picture_secondary)],[metadata],['URL????'],[now]]).upsert_count
+    rowsCount = faces.upsert([[pk],[user_id],[np.int32(_picture_secondary)],[metadata],[url],[now]]).upsert_count
     return now, rowsCount
 
-def set_primary_metadata(user_id:str, metadata: list):
+def set_primary_metadata(user_id:str, metadata: list, url: str):
     faces = get_faces_collection()
     pk = f"{user_id}~{_picture_primary}"
     now = int(time.time()*1e9)
-    insertedRows = faces.insert([[pk],[user_id],[np.int32(_picture_primary)],[metadata],['URL????'],[now]]).insert_count
+    insertedRows = faces.insert([[pk],[user_id],[np.int32(_picture_primary)],[metadata],[url],[now]]).insert_count
     return now, insertedRows
 
 def disable_user(user_id: str):

@@ -8,6 +8,8 @@ from milvus import (
     disable_user         as _disable_user,
     disabled_user        as _disabled_user
 )
+from minio_uploader import put_secondary_photo, put_primary_photo
+
 from PIL import Image
 import numpy as np, io
 from deepface.commons import functions, distance
@@ -58,6 +60,9 @@ def analyze(img_path, actions, detector_backend, enforce_detection, align):
 
 
 def set_primary_photo(user_id: str, photo_stream):
+    existing_md = _get_primary_metadata(user_id)
+    if existing_md is not None:
+        raise MetadataAlreadyExists(f"User {user_id} already owns primary face uploaded at {existing_md['uploaded_at']}")
     md = distance.l2_normalize(DeepFace.represent(
         img_path=loadImageFromStream(photo_stream),
         model_name=_model,
@@ -66,17 +71,17 @@ def set_primary_photo(user_id: str, photo_stream):
         align=True,
         normalization="base",
     )[0]["embedding"])
-    print(md)
     similar_users, distances = _find_similar_users(user_id,md, distance.findThreshold(_model,_similarity_metric))
     if similar_users[0] != user_id:
         if _disable_user(user_id):
             raise UserDisabled(f"Face is matching with user {similar_users[0]}, distance {distances[0]}")
     else:
-        now, rows = _set_primary_metadata(user_id, md)
+        url = put_primary_photo(user_id,photo_stream.stream)
+        now, rows = _set_primary_metadata(user_id, md, url)
         if rows > 0:
             return now
         else:
-            now, rows = _set_primary_metadata(user_id, md)
+            now, rows = _set_primary_metadata(user_id, md, url)
             return now
 
 
@@ -102,7 +107,8 @@ def check_similar_user_and_register_metadata(user_id: str, pics: list):
     bestIndex, euclidian = compare_metadatas(metadata_to_compare, threshold)
     if bestIndex == -1:
         raise NotSameUser(f"user mismatch: distance is greater than {threshold}")
-    now, rows = _update_secondary_metadata(user_id,metadata_to_compare[bestIndex])
+    url = put_secondary_photo(user_id,pics[bestIndex].stream)
+    now, rows = _update_secondary_metadata(user_id,metadata_to_compare[bestIndex], url)
     if rows > 0:
         return bestIndex, euclidian, now
     else:
@@ -148,6 +154,9 @@ def get_status(user_id: str):
     }
 
 class MetadataNotFound(Exception):
+    def __init__(self, message):
+        super().__init__(message)
+class MetadataAlreadyExists(Exception):
     def __init__(self, message):
         super().__init__(message)
 

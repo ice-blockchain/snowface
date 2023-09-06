@@ -4,6 +4,7 @@ from routes import blueprint
 
 from milvus import init_milvus, close_milvus
 from auth import _get_firebase_client
+from minio_uploader import _client_with_initialized_bucket
 from deepface import DeepFace
 import os
 def create_app():
@@ -20,11 +21,15 @@ def create_app():
         raise Exception("failed to init firebase auth: GOOGLE_APPLICATION_CREDENTIALS not set")
     app.config['GOOGLE_APPLICATION_CREDENTIALS'] = firebase_file_content
     with app.app_context():
-        _get_firebase_client()
+        is_gunicorn = "gunicorn" in os.environ.get("SERVER_SOFTWARE", "")
+        if not is_gunicorn:
+            when_ready("mock")
     return app
 
 def when_ready(arbiter):
     init_milvus()
+    _get_firebase_client()
+    _client_with_initialized_bucket()
     DeepFace.build_model("SFace")
 def on_exit(arbiter):
     close_milvus()

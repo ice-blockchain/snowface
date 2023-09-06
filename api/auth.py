@@ -63,7 +63,7 @@ def auth_required(f):
     return decorated
 
 def _parse_ice(token):
-    jwt_data=jwt.decode(token, current_app.config["SECRET_KEY"], algorithms=["HS256"])
+    jwt_data=jwt.decode(token, current_app.config["JWT_SECRET"], algorithms=["HS256"])
     return Token(
         jwt_data["sub"],
         jwt_data["email"],
@@ -93,7 +93,7 @@ def _modify_with_metadata(user, mdToken):
     if not mdToken:
         return user
     user_id = user.user_id
-    metadata = jwt.decode(mdToken, current_app.config["SECRET_KEY"], algorithms=["HS256"])
+    metadata = jwt.decode(mdToken, current_app.config["JWT_TOKEN"], algorithms=["HS256"])
     if metadata["iss"] != _issuer_ice_metadata:
         raise jwt.InvalidIssuerError(f'{metadata["iss"]} must be {_issuer_ice_metadata}')
     sub_match = metadata["sub"] != "" and user_id == metadata["sub"]
