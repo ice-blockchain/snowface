@@ -6,7 +6,7 @@ from milvus import (
     find_similar_users as _find_similar_users,
     set_primary_metadata as _set_primary_metadata,
     disable_user         as _disable_user,
-    disabled_user        as _disabled_user
+    get_user             as _get_user
 )
 from minio_uploader import put_secondary_photo, put_primary_photo
 
@@ -145,7 +145,7 @@ def get_status(user_id: str):
         lastVerified = primary["uploaded_at"]
     else:
         lastVerified = 0
-    disabled = _disabled_user(user_id)
+    disabled = _get_user(user_id)
     return {
         "userID": user_id,
         "primaryPhotoUploaded": primaryUploaded,

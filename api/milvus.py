@@ -7,7 +7,7 @@ import numpy as np
 
 _conn_prefix = "default"
 _faces_collection = None
-_disabled_users_collection = None
+_users_collection = None
 
 _picture_primary = 0
 _picture_secondary = 1
@@ -38,39 +38,35 @@ def init_collection(name, create_fn):
     return db
 
 def init_schema():
-    init_collection("disabled_users", create_disabled_users_collection)
+    init_collection("users", create_users_collection)
     init_collection("faces", create_faces_collection)
 
-def create_disabled_users_collection(name):
+def create_users_collection(name):
+    fields = [
+        FieldSchema(name="user_id", dtype=DataType.VARCHAR, max_length=40, is_primary=True),
+        FieldSchema(name="session_id", dtype=DataType.VARCHAR, max_length=36),
+        FieldSchema(name="emotions", dtype=DataType.VARCHAR, max_length=128),
+        FieldSchema(name="session_started_at", dtype=DataType.INT64),
+        FieldSchema(name="disabled_at", dtype=DataType.INT64),
+        FieldSchema(name="best_pictures_score", dtype=DataType.FLOAT_VECTOR, dim = 45),
+    ]
+    schema = CollectionSchema(
+        fields=fields,
+        description="users"
+    )
     users = Collection(
-        name = name,
-        schema = CollectionSchema(
-            fields = [
-                FieldSchema(
-                    name = "user_id",
-                    dtype=DataType.VARCHAR,
-                    is_primary=True,
-                    max_length = 40
-                ),
-                FieldSchema(
-                    name = "disabled",
-                    dtype=DataType.FLOAT_VECTOR,
-                    dim = 1
-                ),
-                FieldSchema(
-                    name = "disabled_at",
-                    dtype=DataType.INT64
-                ),
-            ]
-        )
+        name=name,
+        schema=schema,
+        using='default'
     )
     users.create_index(
-        field_name="disabled",
-        index_params= {
+        field_name="best_pictures_score",
+        index_params={
             "metric_type":"L2",
-            "index_type":"IVF_FLAT",
-            "params":{"nlist":1}
+            "index_type":"HNSW",
+            "params":{"efConstruction":512, "M":16}
         })
+
     return users
 
 def create_faces_collection(name):
@@ -134,8 +130,8 @@ def get_faces_collection():
 
     return _faces_collection
 
-def get_disabled_users_collection():
-    global _disabled_users_collection
+def get_users_collection():
+    global _users_collection
     if not connections.has_connection(_conn_prefix):
         connections.connect(
             alias=_conn_prefix,
@@ -143,10 +139,10 @@ def get_disabled_users_collection():
             password=os.getenv("MILVUS_PASSWORD","Milvus"),
             uri=os.getenv("MILVUS_URI", "http://localhost:19530")
         )
-    if _disabled_users_collection is None:
-        _disabled_users_collection = init_collection("disabled_users", create_disabled_users_collection)
+    if _users_collection is None:
+        _users_collection = init_collection("users", create_users_collection)
 
-    return _disabled_users_collection
+    return _users_collection
 
 def get_primary_metadata(user_id):
     faces = get_faces_collection()
@@ -215,18 +211,22 @@ def set_primary_metadata(user_id:str, metadata: list, url: str):
     return now, insertedRows
 
 def disable_user(user_id: str):
-    users = get_disabled_users_collection()
+    users = get_users_collection()
+    user = get_user(user_id)
     now = int(time.time()*1e9)
-    insertedRows = users.insert([[user_id], [np.array([1.0],dtype=float)], [now]]).insert_count
+    if user is not None:
+        insertedRows = users.upsert([[user_id], [user["session_id"]], [user["emotions"]],[user["session_started_at"]],[now], [user["best_pictures_score"]]]).upsert_count
+    else:
+        insertedRows = users.upsert([[user_id], [""], [""],[0],[now], [np.array([0.0]*45)]]).upsert_count
     return insertedRows > 0
 
-def disabled_user(user_id: str):
-    users = get_disabled_users_collection()
+def get_user(user_id: str):
+    users = get_users_collection()
     res = users.query(
         expr = f"user_id == \"{user_id}\"",
         offset = 0,
         limit = 1,
-        output_fields = ["user_id","disabled_at"],
+        output_fields = ["user_id","session_id","emotions","session_started_at", "disabled_at", "best_pictures_score"],
     )
     if len(res) == 0:
         return None
