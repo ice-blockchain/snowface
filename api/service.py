@@ -8,9 +8,10 @@ from milvus import (
     find_similar_users as _find_similar_users,
     set_primary_metadata as _set_primary_metadata,
     update_user          as _update_user,
+    disable_user         as _disable_user,
     get_user             as _get_user,
-    update_best_scores   as _update_best_scores,
-    update_emotion_sequence as _update_emotion_sequence
+    update_emotion_sequence_and_best_score as _update_emotion_sequence_and_best_score,
+    update_session_ended_at as _update_session_ended_at
 )
 from minio_uploader import put_secondary_photo, put_primary_photo
 from flask import current_app
@@ -35,15 +36,16 @@ _detector_low_quality = "yunet" # TODO: test with skip, if we gonna get proper p
 _similarity_metric = "euclidean_l2"
 _min_images_with_emotions_to_proceed = 1
 
+TOTAL_BEST_PICTURES = 7
 DEFAULT_EMOTIONS_NUM = 3
 ONE_CALL_IMAGES_COUNT = 15
-DEFAULT_EMOTIONS_LIST = {0: 'anger', 1: 'contempt', 2: 'disgust', 3: 'fear', 4: 'happiness', 5: 'neutral', 6: 'sadness', 7: 'surprise'} # TODO: GPU and move to proper place.
+DEFAULT_EMOTIONS_LIST = DeepFace.build_model("Emotion").idx_to_class
 
 # TODO: take them from current_app.config.
 IMG_STORAGE_PATH = '/tmp/upload'
-SESSION_DURATION = 10 * 60 * int(1e9)']
+SESSION_DURATION = 10 * 60 * int(1e9)
 LIMIT_RATE = 1 * 60 * int(1e9)
-BASE_SIMILARITY_ENDPOINT = 'server-b-url/similarity/'
+BASE_SIMILARITY_ENDPOINT = 'http://127.0.0.1:5000/v1w/face-auth/similarity/'
 
 def represent(img_path, model_name, detector_backend, enforce_detection, align):
     result = {}
@@ -307,11 +309,20 @@ class RateLimitException(Exception):
     def __init__(self, message):
         super().__init__(message)
 
-def _save_image(image, idx, user_id, emotion_name):
+class SessionEndedException(Exception):
+    def __init__(self, message):
+        super().__init__(message)
+
+class EmotionSequenceNotUsed(Exception):
+    def __init__(self, message):
+        super().__init__(message)
+
+def _save_image(image, idx, user_id):
     local_path = f'{IMG_STORAGE_PATH}{user_id}/'
     if not os.path.exists(local_path):
         os.makedirs(local_path)
-    filename = f'{emotion_name}_{idx}.jpg'
+    filename = f'{idx}.jpg'
+    image.seek(0)
     image.save(os.path.join(local_path, filename))
 
 def _remove_user_images(user_id):
@@ -328,17 +339,13 @@ def _remove_user_images(user_id):
 def _count_user_images(user_id):
     return len(glob.glob(f"{IMG_STORAGE_PATH}{user_id}/*.jpg"))
 
-def _send_best_images(token, user_id, images):
-    to_send = []
-    for img in images:
-        to_send.append({'file': open(img, 'rb')})
+def _send_best_images(token, user_id, best_images_indexes):
+    multiple_files = []
+    for img_idx in best_images_indexes:
+        file_path = f"{IMG_STORAGE_PATH}{user_id}/{img_idx}.jpg"
+        multiple_files.append(('image', (f"{img_idx}.jpg", open(file_path, 'rb'), 'image/jpeg')))
 
-    similarityURL = f"{BASE_SIMILARITY_ENDPOINT}{user_id}"
-    response = requests.post(
-        url=similarityURL,
-        files=to_send,
-        headers={'Authorization': 'Bearer ' + token},
-    )
+    response = requests.post(f"{BASE_SIMILARITY_ENDPOINT}{user_id}", files=multiple_files)
 
     return response.status_code == 200
 
@@ -346,18 +353,18 @@ def _get_unique_emotion(current_emotions_list: list):
     if len(current_emotions_list) == 0:
         choice = random.choice(list(DEFAULT_EMOTIONS_LIST.values()))
 
-        return {'emotion': choice, 'completed': False}
+        return choice, False
 
     diff  = set(DEFAULT_EMOTIONS_LIST.values()) - set(current_emotions_list)
     if len(diff) == 0:
-        return {'emotion': None, 'completed': True}
+        return None, True
 
-    return {'emotion': random.choice(list(diff)), 'completed': False}
+    return random.choice(list(diff)), False
 
 def emotions(user_id):
     now = int(time.time()*1e9)
     usr = _get_user(user_id)
-    
+
     if usr is not None:
         if usr['disabled_at'] is not None and usr['disabled_at'] > 0:
             return None, usr['session_id'], True
@@ -370,9 +377,9 @@ def emotions(user_id):
     session_id = str(uuid.uuid4())
     emotions_list = []
     for _ in range(0, DEFAULT_EMOTIONS_NUM):
-        new_emotion = _get_unique_emotion(list(emotions_list))
-        emotions_list.append(new_emotion['emotion'])
-    res = _update_user(user_id, session_id, ",".join(emotions_list), now, 0, 0)
+        new_emotion, completed = _get_unique_emotion(list(emotions_list))
+        emotions_list.append(new_emotion)
+    res = _update_user(user_id, session_id, ",".join(emotions_list), now, 0, 0, 0)
     if res is False:
         raise UpsertException(f"can't insert user:{user_id}")
 
@@ -393,18 +400,27 @@ def add_additional_emotion(session_id, user_id):
     if now - usr['session_started_at'] > SESSION_DURATION:
         raise SessionTimeOutException(f"session of user:{user_id} timed out")
 
+    if usr['session_ended_at'] is not None and usr['session_ended_at'] > 0:
+        raise SessionEndedException(f"session of user:{user_id} ended")
+
+    current_emotions_list = usr['emotions'].split(',')
+    if usr['emotion_sequence'] != len(current_emotions_list):
+        raise EmotionSequenceNotUsed(f"session:{session_id} was finished for user:{user_id}")
+
     # TODO: do we need to rate limit here as well?
 
+    emotion_sequence = usr['emotion_sequence']
     emotions_list = []
-    additional_emotion = _get_unique_emotion(usr['emotions'].split(','))
-    if additional_emotion['completed'] is True:
-        additional_emotion = _get_unique_emotion(list())
-        emotions_list = [additional_emotion['emotion']]
+    new_emotion, completed = _get_unique_emotion(usr['emotions'].split(','))
+    if completed is True:
+        new_emotion, completed = _get_unique_emotion(list())
+        emotions_list = [new_emotion]
+        emotion_sequence = 0
     else:
         emotions_list = usr['emotions'].split(',')
-        emotions_list.append(additional_emotion['emotion'])
+        emotions_list.append(new_emotion)
 
-    res = _update_user(user_id, session_id, ",".join(emotions_list), usr['session_started_at'], usr['emotion_sequence'], 0)
+    res = _update_user(user_id, session_id, ",".join(emotions_list), usr['session_started_at'], 0, 0, emotion_sequence)
     if res is False:
         raise UpsertException(f"can't update user:{user_id} by new emotion")
 
@@ -415,17 +431,29 @@ def process_images(user_id: str, session_id: str, images:list):
     if usr is None:
         raise SessionNotFoundException(f"user:{user_id} not found")
 
+    if usr['session_ended_at'] is not None and usr['session_ended_at'] > 0:
+        return False, True
+
+    if usr['session_id'] != session_id:
+        raise SessionNotFoundException(f"wrong session:{session_id} for user:{user_id}")
+
     now = int(time.time()*1e9)
     if now - usr['session_started_at'] > SESSION_DURATION:
         raise SessionTimeOutException(f"session of user:{user_id} timed out")
 
-    current_emotion = usr['emotions'].split(',')[usr['emotion_sequence']]
+    current_emotions_list = usr['emotions'].split(',')
+    if usr['emotion_sequence'] >= len(current_emotions_list):
+        return False, False
 
-    # emotion, scores = DeepFace.get_emotions_from_images(images=images)
-    emotion = 'dummy' # TODO: change to the emotion from prediction.
-    if False:
-        if emotion != DEFAULT_EMOTIONS_LIST[usr['emotion_sequence']]:
-            return False, False
+    current_emotion = current_emotions_list[usr['emotion_sequence']]
+    model = DeepFace.build_model("Emotion")
+    emotions, scores = model.predict_multi_emotions(face_img_list=[loadImageFromStream(i) for i in images])
+    emotion = max(emotions, key=emotions.count)
+    if emotion != current_emotion:
+        if _update_emotion_sequence_and_best_score(user_id=user_id, emotion_sequence=usr['emotion_sequence']+1, best_score = usr["best_pictures_score"]) is not True:
+            raise UpsertException(f'can\'t update emotion sequence for user_id:{user_id}')
+
+        return False, False
 
     images_count = _count_user_images(user_id=user_id)
     for idx, image in enumerate(images):
@@ -433,34 +461,28 @@ def process_images(user_id: str, session_id: str, images:list):
             _save_image(
                 image=image,
                 user_id=user_id,
-                idx=idx + images_count,
-                emotion_name=current_emotion
+                idx=idx + images_count
             )
         except OSError:
             raise IOException(f"can't save image for user:{user_id}")
 
-    if _update_emotion_sequence(user_id=user_id, emotion_sequence=usr['emotion_sequence']+1) is not True:
-        raise UpsertException(f'can't update emotion index for user_id:{user_id}')
-
-    # TODO: make 1 request for emotion sequence and best scores update.
-    if _update_best_scores(user_id, usr["best_pictures_score"]) is not True:
-        raise UpsertException(f'can't update emotion index for user_id:{user_id}')
+    idx = images_count % 15
+    neutral_idx = model.class_to_idx.get("Neutral")
+    neutral_scores = [s[neutral_idx]for s in scores]
+    usr["best_pictures_score"][idx * ONE_CALL_IMAGES_COUNT:(idx+1)*ONE_CALL_IMAGES_COUNT] = neutral_scores
+    if _update_emotion_sequence_and_best_score(user_id=user_id, emotion_sequence=usr['emotion_sequence']+1, best_score = usr["best_pictures_score"]) is not True:
+        raise UpsertException(f'can\'t update emotion sequence and best score for user_id:{user_id}')
 
     if _count_user_images(user_id=user_id) == ONE_CALL_IMAGES_COUNT * 3:
-        # TODO: get best images and send them.
+        best_indexies = []
+        for idx in np.argpartition(usr['best_pictures_score'], -TOTAL_BEST_PICTURES)[-TOTAL_BEST_PICTURES:]:
+            best_indexies.append(str(idx))
 
-        if False:
-            usr = _get_user(user_id)
-            if usr is None:
-                raise SessionNotFoundException(f"user:{user_id} not found")
-
-            best_indexies = np.argpartition(usr['best_pictures_score'], -total_best_pics)[-total_best_pics:]
-            for idx in best_indexes:
-
-        if False:
-            res = _send_best_images(user_id=user_id, images=best_images)
+        _send_best_images(token='', user_id=user_id, best_images_indexes=best_indexies)
 
         _remove_user_images(user_id=user_id)
+
+        _update_session_ended_at(user_id=user_id)
 
         return True, True
 

@@ -48,6 +48,7 @@ def create_users_collection(name):
         FieldSchema(name="session_id", dtype=DataType.VARCHAR, max_length=36),
         FieldSchema(name="emotions", dtype=DataType.VARCHAR, max_length=128),
         FieldSchema(name="session_started_at", dtype=DataType.INT64),
+        FieldSchema(name="session_ended_at", dtype=DataType.INT64),
         FieldSchema(name="disabled_at", dtype=DataType.INT64),
         FieldSchema(name="emotion_sequence", dtype=DataType.INT64),
         FieldSchema(name="best_pictures_score", dtype=DataType.FLOAT_VECTOR, dim = 45),
@@ -225,28 +226,83 @@ def set_primary_metadata(user_id:str, metadata: list, url: str):
     # print("flush took", time.time() - t)
     return now, insertedRows
 
-def update_user(user_id: str, session_id: str, emotions: str, session_started_at, disabled_at, emotion_sequence):
+def disable_user(user_id: str):
     users = get_users_collection()
     user = get_user(user_id)
     now = int(time.time()*1e9)
     if user is not None:
-        insertedRows = users.upsert([[user_id], [session_id], [emotions], [session_started_at], [disabled_at], [emotion_sequence], [user["best_pictures_score"]]]).upsert_count
+        insertedRows = users.upsert([[user_id], [user["session_id"]], [user["emotions"]],[user["session_started_at"]], [user["session_ended_at"]], [now], [user["best_pictures_score"]]]).upsert_count
     else:
-        insertedRows = users.upsert([[user_id], [session_id], [emotions], [now], [0], [0], [np.array([0.0]*45)]]).upsert_count
+        insertedRows = users.upsert([[user_id], [""], [""],[0],[0],[now], [np.array([0.0]*45)]]).upsert_count
+    return insertedRows > 0
+
+def update_user(
+    user_id: str,
+    session_id: str,
+    emotions: str,
+    session_started_at,
+    session_ended_at,
+    disabled_at,
+    emotion_sequence
+):
+    users = get_users_collection()
+    user = get_user(user_id)
+    now = int(time.time()*1e9)
+    if user is not None:
+        insertedRows = users.upsert([
+            [user_id],
+            [session_id],
+            [emotions],
+            [session_started_at],
+            [session_ended_at],
+            [disabled_at],
+            [emotion_sequence],
+            [user["best_pictures_score"]]
+        ]).upsert_count
+    else:
+        insertedRows = users.upsert([
+            [user_id],
+            [session_id],
+            [emotions],
+            [now],
+            [0],
+            [0],
+            [0],
+            [np.array([0.0]*45)]
+        ]).upsert_count
 
     return insertedRows > 0
 
-def update_best_scores(user_id: str, best_pictures_score):
+def update_emotion_sequence_and_best_score(user_id: str, emotion_sequence: int, best_score: list):
     users = get_users_collection()
     user = get_user(user_id)
-    insertedRows = users.upsert([[user_id], [user['session_id']], [user['emotions']], [user['session_started_at']], [user['disabled_at']], [user["emotion_sequence"]], [best_pictures_score]]).upsert_count
+    insertedRows = users.upsert([
+        [user_id],
+        [user['session_id']],
+        [user['emotions']],
+        [user['session_started_at']],
+        [user["session_ended_at"]],
+        [user['disabled_at']],
+        [emotion_sequence],
+        [best_score]
+    ]).upsert_count
 
     return insertedRows > 0
 
-def update_emotion_sequence(user_id: str, emotion_sequence: int):
+def update_session_ended_at(user_id: str):
     users = get_users_collection()
     user = get_user(user_id)
-    insertedRows = users.upsert([[user_id], [user['session_id']], [user['emotions']], [user['session_started_at']], [user['disabled_at']], [emotion_sequence], user["best_pictures_score"]]).upsert_count
+    now = int(time.time()*1e9)
+    insertedRows = users.upsert([
+        [user_id],
+        [user['session_id']],
+        [user['emotions']],
+        [user['session_started_at']],
+        [now],
+        [user['disabled_at']],
+        [user['emotion_sequence']],
+        [user['best_pictures_score']]
+    ]).upsert_count
 
     return insertedRows > 0
 
@@ -256,7 +312,7 @@ def get_user(user_id: str):
         expr = f"user_id == \"{user_id}\"",
         offset = 0,
         limit = 1,
-        output_fields = ["user_id", "session_id", "emotions", "session_started_at", "disabled_at", "emotion_sequence", "best_pictures_score"],
+        output_fields = ["user_id", "session_id", "emotions", "session_started_at", "session_ended_at", "disabled_at", "emotion_sequence", "best_pictures_score"],
     )
     if len(res) == 0:
         return None

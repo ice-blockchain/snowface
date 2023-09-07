@@ -26,7 +26,7 @@ from deepface.basemodels import (
     ArcFace,
     SFace,
 )
-from deepface.extendedmodels import Age, Gender, Race, Emotion
+from deepface.extendedmodels import Age, Gender, Race, Emotion, hsefer
 from deepface.commons import functions, realtime, distance as dst
 
 # -----------------------------------
@@ -65,7 +65,7 @@ def build_model(model_name):
         "Dlib": DlibWrapper.loadModel,
         "ArcFace": ArcFace.loadModel,
         "SFace": SFace.load_model,
-        "Emotion": Emotion.loadModel,
+        "Emotion": hsefer.loadModel,
         "Age": Age.loadModel,
         "Gender": Gender.loadModel,
         "Race": Race.loadModel,

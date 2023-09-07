@@ -10,7 +10,7 @@ blueprint = Blueprint("routes", __name__)
 
 _session_not_found = "SESSION_NOT_FOUND"
 _session_timed_out = "SESSION_TIMED_OUT"
-_wrong_emotion = "WRONG_EMOTION"
+_session_ended = "SESSION_ENDED"
 _invalid_properties = "INVALID_PROPERTIES"
 _rate_limit_exceeded = "RATE_LIMIT_EXCEEDED"
 _no_faces = "NO_FACES"
@@ -186,7 +186,7 @@ def user_status(current_user, user_id):
 
 @blueprint.route("/v1w/face-auth/emotions/<user_id>/<session_id>", methods=["PUT"])
 @auth_required
-def additional_emotion(user_id, session_id):
+def additional_emotion(current_user, user_id, session_id):
     try:
         emotions_list, session_id, disabled = service.add_additional_emotion(user_id=user_id, session_id=session_id)
         if disabled == True:
@@ -197,8 +197,8 @@ def additional_emotion(user_id, session_id):
         return {'message': str(e), 'code': _session_timed_out}, 403
     except service.SessionNotFoundException as e:
         return {'message': str(e), 'code': _session_not_found}, 403
-    # except OSError as e:
-    #     return {"message":"oops, an error occured"}, 500
+    except service.SessionEndedException as e:
+        return {"message": str(e), 'code': _session_ended}, 403
     except service.UpsertException as e:
         return {"message":"oops, an error occured"}, 500
     except Exception as e:
@@ -206,7 +206,7 @@ def additional_emotion(user_id, session_id):
 
 @blueprint.route("/v1w/face-auth/emotions/<user_id>", methods=["POST"])
 @auth_required
-def emotions(user_id):
+def emotions(current_user, user_id):
     try:
         emotions_list, session_id, disabled = service.emotions(user_id=user_id)
         if disabled == True:
@@ -226,7 +226,7 @@ def emotions(user_id):
 
 @blueprint.route("/v1w/face-auth/liveness/<user_id>/<session_id>", methods=["POST"])
 @auth_required
-def liveness(user_id, session_id):
+def liveness(current_user, user_id, session_id):
     images = request.files.getlist("image")
     if images is None:
         return {"message": "you must pass images input", 'code': _invalid_properties}, 400
@@ -245,4 +245,3 @@ def liveness(user_id, session_id):
         return {"message":"oops, an error occured"}, 500
     except Exception as e:
         return {"message":"oops, an error occured"}, 500
-
