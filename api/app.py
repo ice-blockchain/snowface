@@ -31,6 +31,7 @@ def when_ready(arbiter):
     _get_firebase_client()
     _client_with_initialized_bucket()
     DeepFace.build_model("SFace")
+    DeepFace.build_model("VGG-Face")
 def on_exit(arbiter):
     close_milvus()
 
@@ -38,5 +39,5 @@ if __name__ == '__main__':
     from dotenv import load_dotenv
     load_dotenv("../.env")
     app = create_app()
-    app.debug = True
+    app.debug = False
     app.run()

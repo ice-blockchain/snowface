@@ -32,6 +32,9 @@ def _client_with_initialized_bucket():
 
 def put_primary_photo(user_id: str, photo_content):
     return put_proto(user_id, _picture_primary, photo_content)
+
+def get_primary_photo(user_id: str):
+    return get_photo(user_id, _picture_primary)
 def put_secondary_photo(user_id: str, photo_content):
     return put_proto(user_id, _picture_secondary, photo_content)
 def put_proto(user_id: str, photo_id: int, photo_content):
@@ -49,3 +52,12 @@ def put_proto(user_id: str, photo_id: int, photo_content):
     # limited to 7 days max, but in case of need we can change bucket policy to public
     # and download by direct links, or use minio admin ui on :9001
     #return client.get_presigned_url("GET", _bucket_name,obj_name,expires=datetime.timedelta(days=365*10) ,version_id=res.version_id,)
+
+def get_photo(user_id: str, photo_id: int):
+    client = _client_with_initialized_bucket()
+    obj_name = f"{user_id}/{photo_id}"
+    res = client.get_object(_bucket_name, obj_name)
+    data = res.data
+    res.close()
+    res.release_conn()
+    return data

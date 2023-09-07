@@ -12,6 +12,7 @@ _users_collection = None
 _picture_primary = 0
 _picture_secondary = 1
 
+
 def init_milvus():
     if not connections.has_connection(_conn_prefix):
         connections.connect(
@@ -193,6 +194,8 @@ def find_similar_users(user_id: str,metadata: list, threshold: float):
     [(found_user_ids.append(found_user_id),distances.append(distance))
       for found_user_id, distance in r
       if distance <= threshold and found_user_id not in found_user_ids]
+    if len(found_user_ids) == 0:
+        return [user_id],[]
     return found_user_ids, distances
 
 
@@ -208,6 +211,9 @@ def set_primary_metadata(user_id:str, metadata: list, url: str):
     pk = f"{user_id}~{_picture_primary}"
     now = int(time.time()*1e9)
     insertedRows = faces.insert([[pk],[user_id],[np.int32(_picture_primary)],[metadata],[url],[now]]).insert_count
+    # t = time.time()
+    # faces.flush()
+    # print("flush took", time.time() - t)
     return now, insertedRows
 
 def disable_user(user_id: str):

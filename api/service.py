@@ -1,3 +1,5 @@
+import time
+
 from deepface import DeepFace
 from milvus import (
     get_primary_metadata as _get_primary_metadata,
@@ -8,7 +10,7 @@ from milvus import (
     disable_user         as _disable_user,
     get_user             as _get_user
 )
-from minio_uploader import put_secondary_photo, put_primary_photo
+from minio_uploader import put_secondary_photo, put_primary_photo, get_primary_photo
 
 from PIL import Image
 import cv2
@@ -16,9 +18,11 @@ import numpy as np, io
 from deepface.commons import functions, distance
 
 _model = "SFace"
+_model_fallback = "VGG-Face"
 _detector_high_quality = "yunet"
-_detector_low_quality = "yunet"
+_detector_low_quality = "yunet" # TODO: test with skip, if we gonna get proper photos from FE
 _similarity_metric = "euclidean_l2"
+_min_images_with_emotions_to_proceed = 1
 
 def represent(img_path, model_name, detector_backend, enforce_detection, align):
     result = {}
@@ -68,62 +72,85 @@ def set_primary_photo(user_id: str, photo_stream):
     existing_md = _get_primary_metadata(user_id)
     if existing_md is not None:
         raise MetadataAlreadyExists(f"User {user_id} already owns primary face uploaded at {existing_md['uploaded_at']}")
-    md = distance.l2_normalize(DeepFace.represent(
-        img_path=loadImageFromStream(photo_stream),
-        model_name="SFace",
-        enforce_detection=True,
-        detector_backend="yunet",
-        align=True,
-        normalization="base",
-        target_size=(1080,1080)
-    )[0]["embedding"])
-    print(md)
-    similar_users, distances = _find_similar_users(user_id,md, distance.findThreshold(_model,_similarity_metric))
+    t = time.time()
+    try:
+        md = distance.l2_normalize(DeepFace.represent(
+            img_path=loadImageFromStream(photo_stream),
+            model_name=_model,
+            enforce_detection=True,
+            detector_backend=_detector_high_quality,
+            align=True,
+            normalization="base",
+            target_size=(1080,1080)
+        )[0]["embedding"])
+    except ValueError:
+        raise NoFaces("No faces detected")
+    threshold = distance.findThreshold(_model,_similarity_metric)
+    similar_users, distances = _find_similar_users(user_id,md, threshold)
     if similar_users[0] != user_id:
-        if _disable_user(user_id):
-            raise UserDisabled(f"Face is matching with user {similar_users[0]}, distance {distances[0]}")
+        # make sure it is not a false positive, let's check other picture as well
+        secondary_md = _get_secondary_metadata(similar_users[0])
+        if secondary_md:
+            bestIndex, euclidian = compare_metadatas([secondary_md,md], threshold)
+            if bestIndex != -1 and _disable_user(user_id):
+                raise UserDisabled(f"Face is matching with user {similar_users[0]}, distance {distances[0]} (2nd {euclidian})")
+    url = put_primary_photo(user_id,photo_stream.stream)
+    now, rows = _set_primary_metadata(user_id, md, url)
+    if rows > 0:
+        return now
     else:
-        url = put_primary_photo(user_id,photo_stream.stream)
         now, rows = _set_primary_metadata(user_id, md, url)
-        if rows > 0:
-            return now
-        else:
-            now, rows = _set_primary_metadata(user_id, md, url)
-            return now
+        return now
 
 
-def check_similar_user_and_register_metadata(user_id: str, pics: list):
+def check_similar_user_and_register_metadata(user_id: str, raw_pics: list):
     user_reference_metadata = _get_primary_metadata(user_id)
     if user_reference_metadata is None:
         raise MetadataNotFound(f"User {user_id} have no registered primary metadata yet")
     user_reference_metadata = user_reference_metadata["face_metadata"]
-    i = 0
+    pics = [loadImageFromStream(p) for p in raw_pics]
+    md, bestIndex, euclidian,threshold = extract_and_compare_metadatas(user_reference_metadata, pics,_model)
+    if bestIndex == -1:
+        # user is not the same as on primary photo - let's try with VGG-Face model as well to reduce false-negatives
+        primary_photo = get_primary_photo(user_id)
+        user_reference_metadata = distance.l2_normalize(DeepFace.represent(
+            img_path=loadImageFromStream(io.BytesIO(primary_photo)),
+            model_name=_model_fallback,
+            enforce_detection=True,
+            detector_backend=_detector_high_quality,
+            align=True,
+            normalization="base",
+        )[0]["embedding"])
+        mdFallback, bestIndex, euclidian,threshold = extract_and_compare_metadatas(user_reference_metadata, pics,_model_fallback)
+        if bestIndex == -1:
+            raise NotSameUser(f"user mismatch: distance is greater than {threshold}: {euclidian}")
+    url = put_secondary_photo(user_id,raw_pics[bestIndex].stream)
+    now, rows = _update_secondary_metadata(user_id,md[bestIndex], url)
+    if rows > 0:
+        return bestIndex, euclidian, now
+    else:
+        now, rows = _update_secondary_metadata(user_id,md[bestIndex])
+        return bestIndex, euclidian, now
+
+
+def extract_and_compare_metadatas(user_reference_metadata: list, pics, model):
     metadata_to_compare = [user_reference_metadata]
     try:
         metadata_to_compare.extend([
             distance.l2_normalize(DeepFace.represent(
-                img_path=loadImageFromStream(p),
-                model_name=_model,
-                enforce_detection=True,
-                detector_backend=_detector_high_quality,
+                img_path=p,
+                model_name=model,
+                enforce_detection=False,
+                detector_backend=_detector_low_quality,
                 align=True,
                 normalization="base",
             )[0]["embedding"]) for p in pics
         ])
     except ValueError as e:
-        raise NoFaces("No faces detected", e)
-    threshold = distance.findThreshold(_model,_similarity_metric)
+        raise NoFaces("No faces detected")
+    threshold = distance.findThreshold(model,_similarity_metric)
     bestIndex, euclidian = compare_metadatas(metadata_to_compare, threshold)
-    if bestIndex == -1:
-        raise NotSameUser(f"user mismatch: distance is greater than {threshold}")
-    url = put_secondary_photo(user_id,pics[bestIndex].stream)
-    now, rows = _update_secondary_metadata(user_id,metadata_to_compare[bestIndex], url)
-    if rows > 0:
-        return bestIndex, euclidian, now
-    else:
-        now, rows = _update_secondary_metadata(user_id,metadata_to_compare[bestIndex])
-        return bestIndex, euclidian, now
-
+    return metadata_to_compare,bestIndex, euclidian, threshold
 
 def compare_metadatas(metadatas: list, threshold: float):
     normalizedRefMetadata = metadatas.pop(0)
@@ -131,8 +158,8 @@ def compare_metadatas(metadatas: list, threshold: float):
     m = distances[0]
     indexes = [(distances.index(d), m := min(d,m)) for d in distances if d <= threshold]
     indexes.sort(key=lambda x: x[1])
-    if len(indexes) != len(metadatas):
-        return -1,-1
+    if len(indexes) != len(metadatas) and len(indexes) < _min_images_with_emotions_to_proceed:
+        return -1, min([i for i in distances if i > threshold])
     else:
         return indexes[0]
 
@@ -183,5 +210,5 @@ class UserNotFound(Exception):
     def __init__(self, message):
         super().__init__(message)
 class NoFaces(Exception):
-    def __init__(self, message, e):
-        super(e).__init__(message)
+    def __init__(self, message):
+        super().__init__(message)
