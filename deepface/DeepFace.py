@@ -94,6 +94,7 @@ def verify(
     enforce_detection=True,
     align=True,
     normalization="base",
+    target_size = None
 ):
     """
     This function verifies an image pair is same person or different persons. In the background,
@@ -143,7 +144,8 @@ def verify(
     tic = time.time()
 
     # --------------------------------
-    target_size = functions.find_target_size(model_name=model_name)
+    if target_size is None:
+        target_size = functions.find_target_size(model_name=model_name)
 
     # img pairs might have many faces
     img1_objs = functions.extract_faces(
@@ -623,6 +625,7 @@ def represent(
     detector_backend="opencv",
     align=True,
     normalization="base",
+    target_size = None,
 ):
     """
     This function represents facial images as vectors. The function uses convolutional neural
@@ -658,7 +661,8 @@ def represent(
 
     # ---------------------------------
     # we have run pre-process in verification. so, this can be skipped if it is coming from verify.
-    target_size = functions.find_target_size(model_name=model_name)
+    if target_size is None:
+        target_size = functions.find_target_size(model_name=model_name)
     if detector_backend != "skip":
         img_objs = functions.extract_faces(
             img=img_path,
@@ -689,7 +693,6 @@ def represent(
     for img, region, confidence in img_objs:
         # custom normalization
         img = functions.normalize_input(img=img, normalization=normalization)
-
         # represent
         if "keras" in str(type(model)):
             # new tf versions show progress bar and it is annoying

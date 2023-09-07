@@ -11,11 +11,13 @@ from milvus import (
 from minio_uploader import put_secondary_photo, put_primary_photo
 
 from PIL import Image
+import cv2
 import numpy as np, io
 from deepface.commons import functions, distance
 
 _model = "SFace"
-_detector = "skip"
+_detector_high_quality = "yunet"
+_detector_low_quality = "yunet"
 _similarity_metric = "euclidean_l2"
 
 def represent(img_path, model_name, detector_backend, enforce_detection, align):
@@ -68,12 +70,14 @@ def set_primary_photo(user_id: str, photo_stream):
         raise MetadataAlreadyExists(f"User {user_id} already owns primary face uploaded at {existing_md['uploaded_at']}")
     md = distance.l2_normalize(DeepFace.represent(
         img_path=loadImageFromStream(photo_stream),
-        model_name=_model,
+        model_name="SFace",
         enforce_detection=True,
-        detector_backend=_detector,
+        detector_backend="yunet",
         align=True,
         normalization="base",
+        target_size=(1080,1080)
     )[0]["embedding"])
+    print(md)
     similar_users, distances = _find_similar_users(user_id,md, distance.findThreshold(_model,_similarity_metric))
     if similar_users[0] != user_id:
         if _disable_user(user_id):
@@ -97,12 +101,14 @@ def check_similar_user_and_register_metadata(user_id: str, pics: list):
     metadata_to_compare = [user_reference_metadata]
     try:
         metadata_to_compare.extend([
-            DeepFace.represent(
+            distance.l2_normalize(DeepFace.represent(
                 img_path=loadImageFromStream(p),
                 model_name=_model,
                 enforce_detection=True,
-                detector_backend=_detector
-            )[0]["embedding"] for p in pics
+                detector_backend=_detector_high_quality,
+                align=True,
+                normalization="base",
+            )[0]["embedding"]) for p in pics
         ])
     except ValueError as e:
         raise NoFaces("No faces detected", e)
@@ -120,19 +126,22 @@ def check_similar_user_and_register_metadata(user_id: str, pics: list):
 
 
 def compare_metadatas(metadatas: list, threshold: float):
-    normalizedRefMetadata = distance.l2_normalize(metadatas[0])
-    metadatas = metadatas[1:]
-    distances = [distance.findEuclideanDistance(normalizedRefMetadata, distance.l2_normalize(md)) for md in metadatas]
-    distances.sort()
-    indexes = [distances.index(d) for d in distances if d <= threshold]
+    normalizedRefMetadata = metadatas.pop(0)
+    distances = [distance.findEuclideanDistance(normalizedRefMetadata, md) for md in metadatas]
+    m = distances[0]
+    indexes = [(distances.index(d), m := min(d,m)) for d in distances if d <= threshold]
+    indexes.sort(key=lambda x: x[1])
     if len(indexes) != len(metadatas):
         return -1,-1
     else:
-        return indexes[0], distances[indexes[0]]
+        return indexes[0]
 
 def loadImageFromStream(p):
-    im = Image.open(p.stream)
-    img = np.asarray(im)
+    chunk_arr = np.frombuffer(p.read(), dtype=np.uint8)
+    img = cv2.imdecode(chunk_arr, cv2.IMREAD_COLOR)
+    # im = Image.open(p.stream)
+    # img = np.asarray(im)
+    # return img
     return img
 
 

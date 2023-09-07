@@ -2,7 +2,7 @@ from flask import Blueprint, request, Response
 import service
 
 from auth import auth_required
-
+import traceback
 blueprint = Blueprint("routes", __name__)
 
 _no_faces = "NO_FACES"
@@ -106,7 +106,7 @@ def analyze():
 
     return demographies
 
-@blueprint.route("/similarity/<user_id>", methods=["POST"])
+@blueprint.route("/v1w/face-auth/similarity/<user_id>", methods=["POST"])
 @auth_required
 def similar(current_user, user_id):
     try:
@@ -119,15 +119,16 @@ def similar(current_user, user_id):
     except service.NoFaces as e:
         return {"message": str(e), "code":_no_faces}, 400
     except Exception as e:
+        print(traceback.format_exc())
         return {"message":"oops, an error occured"}, 500
 
 
-@blueprint.route("/primary_photo/<user_id>", methods=["POST"])
+@blueprint.route("/v1w/face-auth/primary_photo/<user_id>", methods=["POST"])
 @auth_required
 def primary_photo(current_user, user_id):
     try:
-        updatedAt = service.set_primary_photo(user_id, request.files["image"])
-        return {"userID": user_id, "primaryPhotoUpdatedAt":updatedAt}
+        service.set_primary_photo(user_id, request.files["image"])
+        return ""
     except service.NoFaces as e:
         return {"message": str(e), "code":_no_faces}, 400
     except service.MetadataAlreadyExists as e:
