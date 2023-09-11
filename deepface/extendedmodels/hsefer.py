@@ -52,6 +52,7 @@ class HSEmotionRecognizer:
             np.uint8
         )
         _,emotions = self.predict_emotions(face_img)
+
         return numpy.array([emotions])
 
     def predict_on_batch(self, face_img):

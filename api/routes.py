@@ -203,7 +203,7 @@ def additional_emotion(current_user, user_id, session_id):
     try:
         emotions_list, session_id = service.add_additional_emotion(user_id=user_id, session_id=session_id)
 
-        return {'emotions': emotions_list, 'session_id': session_id}
+        return {'emotions': emotions_list, 'sessionId': session_id}
     except service.UserDisabled as e:
         return {'message': str(e), 'code': _user_disabled}, 403
     except service.SessionTimeOutException as e:
@@ -227,7 +227,7 @@ def liveness(current_user, user_id, session_id):
     try:
         result, session_ended = service.process_images(token=current_user.raw_token, user_id=user_id, session_id=session_id, images=images)
 
-        return {'result': result, 'session_ended': session_ended}
+        return {'result': result, 'sessionEnded': session_ended}
     except service.WrongImageSizeException as e:
         return {'message': str(e), 'code': _invalid_properties}, 400
     except service.UserDisabled as e:

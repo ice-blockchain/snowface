@@ -434,7 +434,7 @@ def add_additional_emotion(session_id, user_id):
 def _generate_best_scores(usr, scores, model, images_count):
     idx = int(images_count / _images_count_per_call)
 
-    neutral_idx = model.class_to_idx.get("Neutral")
+    neutral_idx = model.class_to_idx.get("neutral")
     neutral_scores = [s[neutral_idx]for s in scores]
     usr['best_pictures_score'][idx * _images_count_per_call:(idx+1)*_images_count_per_call] = neutral_scores
 
@@ -468,13 +468,16 @@ def _save_image(image, idx, user_id):
     image.save(os.path.join(local_path, filename))
 
 def _send_best_images(img_storage_path, base_similarity_endpoint, token, user_id, best_images_indexes):
-    multiple_files = []
+    files = []
     for img_idx in best_images_indexes:
         file_path = f"{img_storage_path}{user_id}/{img_idx}.jpg"
-        multiple_files.append(('image', (f"{img_idx}.jpg", open(file_path, 'rb'), 'image/jpeg')))
+        files.append(('image', (f"{img_idx}.jpg", open(file_path, 'rb'), 'image/jpeg')))
 
-    headers = {"Authorization": f"Bearer {token}"}
-    response = requests.post(f"{base_similarity_endpoint}{user_id}", files=multiple_files, headers=headers)
+    response = requests.post(
+        url=f"{base_similarity_endpoint}{user_id}",
+        files=files,
+        headers={"Authorization": f"Bearer {token}"}
+    )
 
     return response.status_code == 200
 
@@ -553,7 +556,12 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
             idx=idx + images_count
         )
 
-    _generate_best_scores(usr=usr, scores=scores, model=model, images_count=images_count)
+    _generate_best_scores(
+        usr=usr,
+        scores=scores,
+        model=model,
+        images_count=images_count
+    )
 
     if _count_user_images(user_id) == _images_count_per_call * _default_emotions_num:
         _finish_session(usr, token)
