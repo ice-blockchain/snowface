@@ -18,7 +18,7 @@ import numpy as np, io
 from deepface.commons import functions, distance
 
 _model = "SFace"
-_model_fallback = "VGG-Face"
+_model_fallback = "ArcFace"#"Facenet" #"VGG-Face"
 _detector_high_quality = "yunet"
 _detector_low_quality = "yunet" # TODO: test with skip, if we gonna get proper photos from FE
 _similarity_metric = "euclidean_l2"
@@ -72,10 +72,10 @@ def set_primary_photo(user_id: str, photo_stream):
     existing_md = _get_primary_metadata(user_id)
     if existing_md is not None:
         raise MetadataAlreadyExists(f"User {user_id} already owns primary face uploaded at {existing_md['uploaded_at']}")
-    t = time.time()
+    img = loadImageFromStream(photo_stream)
     try:
         md = distance.l2_normalize(DeepFace.represent(
-            img_path=loadImageFromStream(photo_stream),
+            img_path=img,
             model_name=_model,
             enforce_detection=True,
             detector_backend=_detector_high_quality,
@@ -91,9 +91,24 @@ def set_primary_photo(user_id: str, photo_stream):
         # make sure it is not a false positive, let's check other picture as well
         secondary_md = _get_secondary_metadata(similar_users[0])
         if secondary_md:
-            bestIndex, euclidian = compare_metadatas([secondary_md,md], threshold)
+            bestIndex, euclidian = compare_metadatas([secondary_md["face_metadata"],md], threshold)
             if bestIndex != -1 and _disable_user(user_id):
-                raise UserDisabled(f"Face is matching with user {similar_users[0]}, distance {distances[0]} (2nd {euclidian})")
+                raise UserDisabled(f"Face is matching with user {similar_users[0]}, distance {distances[0]} {euclidian} < {threshold}")
+        else:
+            # that similar user dont have 2nd pic yet,but we can re-check with fallback model
+            simiar_user_picture = get_primary_photo(similar_users[0])
+            res = DeepFace.verify(
+                img1_path=img,
+                img2_path=loadImageFromStream(io.BytesIO(simiar_user_picture)),
+                detector_backend=_detector_high_quality,
+                model_name=_model_fallback,
+                distance_metric=_similarity_metric,
+                normalization="base",
+                align=True
+            )
+            print(res['distance'],res['threshold'])
+            if res["verified"] and _disable_user(user_id):
+                raise UserDisabled(f"Face is matching with user {similar_users[0]}, distance {distances[0]} {res['distance']} < {res['threshold']}")
     url = put_primary_photo(user_id,photo_stream.stream)
     now, rows = _set_primary_metadata(user_id, md, url)
     if rows > 0:
@@ -111,7 +126,7 @@ def check_similar_user_and_register_metadata(user_id: str, raw_pics: list):
     pics = [loadImageFromStream(p) for p in raw_pics]
     md, bestIndex, euclidian,threshold = extract_and_compare_metadatas(user_reference_metadata, pics,_model)
     if bestIndex == -1:
-        # user is not the same as on primary photo - let's try with VGG-Face model as well to reduce false-negatives
+        # user is not the same as on primary photo - let's try with more complex but slower model as well to reduce false-negatives
         primary_photo = get_primary_photo(user_id)
         user_reference_metadata = distance.l2_normalize(DeepFace.represent(
             img_path=loadImageFromStream(io.BytesIO(primary_photo)),

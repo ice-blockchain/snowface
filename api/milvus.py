@@ -191,9 +191,10 @@ def find_similar_users(user_id: str,metadata: list, threshold: float):
     r = zip(results[0].ids, results[0].distances)
     found_user_ids = []
     distances = []
-    [(found_user_ids.append(found_user_id),distances.append(distance))
+    [(found_user_ids.append(found_user_id.split("~")[0]),distances.append(distance))
       for found_user_id, distance in r
-      if distance <= threshold and found_user_id not in found_user_ids]
+      if (distance <= threshold or distance == 0.0) and found_user_id not in found_user_ids]
+    #print(len(results),results[0].ids, results[0].distances, len(found_user_ids))
     if len(found_user_ids) == 0:
         return [user_id],[]
     return found_user_ids, distances

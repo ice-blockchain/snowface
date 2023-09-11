@@ -31,7 +31,7 @@ def when_ready(arbiter):
     _get_firebase_client()
     _client_with_initialized_bucket()
     DeepFace.build_model("SFace")
-    DeepFace.build_model("VGG-Face")
+    DeepFace.build_model("ArcFace")
 def on_exit(arbiter):
     close_milvus()
 
