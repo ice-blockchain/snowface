@@ -224,7 +224,18 @@ def set_primary_metadata(user_id:str, metadata: list, url: str):
     # t = time.time()
     # faces.flush()
     # print("flush took", time.time() - t)
-    return now, insertedRows
+    return {
+        "user_picture_id": pk,
+        "user_id": user_id,
+        "picture_id": np.int32(_picture_primary),
+        "face_metadata": metadata,
+        "url": url,
+        "uploaded_at": now
+    }, insertedRows
+
+def delete_metadata(pk:str):
+    faces = get_faces_collection()
+    faces.delete(f"user_picture_id in [\"{pk}\"]")
 
 def disable_user(user_id: str):
     users = get_users_collection()

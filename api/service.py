@@ -14,6 +14,7 @@ from milvus import (
     update_secondary_metadata              as _update_secondary_metadata,
     find_similar_users                     as _find_similar_users,
     set_primary_metadata                   as _set_primary_metadata,
+    delete_metadata                        as _delete_metadata,
     update_user                            as _update_user,
     disable_user                           as _disable_user,
     get_user                               as _get_user,
