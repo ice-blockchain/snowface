@@ -205,7 +205,14 @@ def update_secondary_metadata(user_id:str, metadata: list, url: str):
     pk = f"{user_id}~{_picture_secondary}"
     now = int(time.time()*1e9)
     rowsCount = faces.upsert([[pk],[user_id],[np.int32(_picture_secondary)],[metadata],[url],[now]]).upsert_count
-    return now, rowsCount
+    return {
+        "user_picture_id": pk,
+        "user_id": user_id,
+        "picture_id": np.int32(_picture_secondary),
+        "face_metadata": metadata,
+        "url": url,
+        "uploaded_at": now
+    }, rowsCount
 
 def set_primary_metadata(user_id:str, metadata: list, url: str):
     faces = get_faces_collection()
@@ -215,8 +222,17 @@ def set_primary_metadata(user_id:str, metadata: list, url: str):
     # t = time.time()
     # faces.flush()
     # print("flush took", time.time() - t)
-    return now, insertedRows
-
+    return {
+        "user_picture_id": pk,
+        "user_id": user_id,
+        "picture_id": np.int32(_picture_primary),
+        "face_metadata": metadata,
+        "url": url,
+        "uploaded_at": now
+    }, insertedRows
+def delete_metadata(pk:str):
+    faces = get_faces_collection()
+    faces.delete(f"user_picture_id in [\"{pk}\"]")
 def disable_user(user_id: str):
     users = get_users_collection()
     user = get_user(user_id)
@@ -225,7 +241,7 @@ def disable_user(user_id: str):
         insertedRows = users.upsert([[user_id], [user["session_id"]], [user["emotions"]],[user["session_started_at"]],[now], [user["best_pictures_score"]]]).upsert_count
     else:
         insertedRows = users.upsert([[user_id], [""], [""],[0],[now], [np.array([0.0]*45)]]).upsert_count
-    return insertedRows > 0
+    return now, insertedRows > 0
 
 def get_user(user_id: str):
     users = get_users_collection()

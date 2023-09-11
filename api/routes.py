@@ -1,8 +1,11 @@
-from flask import Blueprint, request, Response
-import service
+from flask import Blueprint, request
+import service, webhook
 
 from auth import auth_required
-import traceback
+from limits.storage import MemoryStorage
+from limits.strategies import MovingWindowRateLimiter
+from limits import parse
+import logging
 blueprint = Blueprint("routes", __name__)
 
 _no_faces = "NO_FACES"
@@ -10,8 +13,18 @@ _no_primary_metadata = "NO_PRIMARY_METADATA"
 _user_not_the_same = "USER_NOT_THE_SAME"
 _user_disabled = "USER_DISABLED"
 _already_uploaded = "ALREADY_UPLOADED"
+_rate_limit_exceeded = "RATE_LIMIT_EXCEEDED"
 
-@blueprint.route("/")
+_primary_photo_rate_limiter = MovingWindowRateLimiter(storage=MemoryStorage())
+_primary_photo_rate_limiter_rate = None
+def init_rate_limiters(app):
+    global _primary_photo_rate_limiter_rate
+    if app.config['PRIMARY_PHOTO_ERROR_LIMIT']:
+        _primary_photo_rate_limiter_rate = parse(app.config['PRIMARY_PHOTO_ERROR_LIMIT'])
+    else:
+        _primary_photo_rate_limiter_rate = None
+
+@blueprint.route("/", methods = ["GET"])
 def home():
     return "<h1>Welcome to DeepFace API!</h1>"
 
@@ -110,35 +123,59 @@ def analyze():
 @auth_required
 def similar(current_user, user_id):
     try:
-        bestIndex, euclidian, updateTime = service.check_similar_user_and_register_metadata(user_id, request.files.getlist("image"))
+        bestIndex, euclidian, updateTime = service.check_similarity_and_update_secondary_photo(current_user, user_id, request.files.getlist("image"))
         return  {"userID":user_id, "bestIndex":bestIndex, "distance": euclidian, "secondaryPhotoUpdatedAt":updateTime}
     except service.MetadataNotFound as e:
+        logging.error(e)
         return {"message": str(e), "code":_no_primary_metadata}, 400
     except service.NotSameUser as e:
+        logging.error(e)
         return {"message": str(e), "code":_user_not_the_same}, 400
     except service.NoFaces as e:
+        logging.error(e)
         return {"message": str(e), "code":_no_faces}, 400
+    except webhook.UnauthorizedFromWebhook as e:
+        return str(e), 401
     except Exception as e:
-        print(traceback.format_exc())
+        logging.error(e, exc_info=e)
         return {"message":"oops, an error occured"}, 500
-
 
 @blueprint.route("/v1w/face-auth/primary_photo/<user_id>", methods=["POST"])
 @auth_required
 def primary_photo(current_user, user_id):
     try:
-        service.set_primary_photo(user_id, request.files["image"])
+        if _primary_photo_rate_limiter_rate is not None and not _primary_photo_rate_limiter.test(_primary_photo_rate_limiter_rate, ""): # global, should it be per user_id?
+            return {"message": f"rate limit for errors {_primary_photo_rate_limiter_rate} exceeded", "code":_rate_limit_exceeded}, 429
+        service.set_primary_photo(current_user, user_id, request.files["image"])
         return ""
     except service.NoFaces as e:
+        logging.error(e)
+        if _primary_photo_rate_limiter_rate is not None:
+            _primary_photo_rate_limiter.hit(_primary_photo_rate_limiter_rate, "")
         return {"message": str(e), "code":_no_faces}, 400
     except service.MetadataAlreadyExists as e:
+        logging.error(e)
+        if _primary_photo_rate_limiter_rate is not None:
+            _primary_photo_rate_limiter.hit(_primary_photo_rate_limiter_rate, "")
         return {"message": str(e), "code":_already_uploaded}, 409
     except service.UserDisabled as e:
+        logging.error(e)
         return {"message": str(e), "code":_user_disabled}, 403
+    except webhook.UnauthorizedFromWebhook as e:
+        return str(e), 401
+    except Exception as e:
+        logging.error(e, exc_info=e)
+        if _primary_photo_rate_limiter_rate is not None:
+            _primary_photo_rate_limiter.hit(_primary_photo_rate_limiter_rate, "")
+        return {"message":"oops, an error occured"}, 500
 
 @blueprint.route("/status/<user_id>", methods=["GET"])
 @auth_required
 def user_status(current_user, user_id):
-    status = service.get_status(user_id)
-    return status
+    try:
+        status = service.get_status(user_id)
+        return status
+    except Exception as e:
+        logging.error(e, exc_info=e)
+        return {"message":"oops, an error occured"}, 500
 

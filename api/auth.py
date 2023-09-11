@@ -17,8 +17,10 @@ class Token:
     user_id: str
     email: str
     role: str
+    raw_token: str
     _provider: str
-    def __init__(self, user_id: str, email: str, role: str, provider: str):
+    def __init__(self, token, user_id: str, email: str, role: str, provider: str):
+        self.raw_token = token
         self.user_id = user_id
         self.email = email
         self.role = role
@@ -65,6 +67,7 @@ def auth_required(f):
 def _parse_ice(token):
     jwt_data=jwt.decode(token, current_app.config["JWT_SECRET"], algorithms=["HS256"])
     return Token(
+        token,
         jwt_data["sub"],
         jwt_data["email"],
         jwt_data["role"],
@@ -75,6 +78,7 @@ def _parse_firebase(token):
     jwt_data = auth.verify_id_token(token, app = _get_firebase_client())
     print(jwt_data)
     return Token(
+        token,
         jwt_data["uid"],
         jwt_data["email"],
         jwt_data["role"],

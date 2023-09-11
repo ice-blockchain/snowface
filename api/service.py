@@ -7,14 +7,14 @@ from milvus import (
     update_secondary_metadata as _update_secondary_metadata,
     find_similar_users as _find_similar_users,
     set_primary_metadata as _set_primary_metadata,
+    delete_metadata      as _delete_metadata,
     disable_user         as _disable_user,
     get_user             as _get_user
 )
 from minio_uploader import put_secondary_photo, put_primary_photo, get_primary_photo
-
-from PIL import Image
+from webhook import callback, UnauthorizedFromWebhook
 import cv2
-import numpy as np, io
+import numpy as np, io, requests
 from deepface.commons import functions, distance
 
 _model = "SFace"
@@ -64,8 +64,19 @@ def analyze(img_path, actions, detector_backend, enforce_detection, align):
     result["results"] = demographies
     return result
 
+def init_models():
+    DeepFace.build_model(_model)
+    DeepFace.build_model(_model_fallback)
+    DeepFace.build_model("Emotion")
+    samplePerson = requests.get(
+        url="https://thispersondoesnotexist.com/", verify=False
+    )
+    if samplePerson.status_code == 200:
+        img = loadImageFromStream(io.BytesIO(samplePerson.content))
+        DeepFace.represent(img_path=img, detector_backend=_detector_high_quality, model_name=_model)
+        DeepFace.represent(img_path=img, detector_backend=_detector_high_quality, model_name=_model_fallback)
 
-def set_primary_photo(user_id: str, photo_stream):
+def set_primary_photo(current_user, user_id: str, photo_stream):
     user = _get_user(user_id)
     if user is not None and user["disabled_at"] > 0:
         raise UserDisabled(f"User {user_id} was disabled at {user['disabled_at']}")
@@ -107,28 +118,34 @@ def set_primary_photo(user_id: str, photo_stream):
                 align=True
             )
             print(res['distance'],res['threshold'])
-            if res["verified"] and _disable_user(user_id):
-                raise UserDisabled(f"Face is matching with user {similar_users[0]}, distance {distances[0]} {res['distance']} < {res['threshold']}")
+            if res["verified"]:
+                disabled_at, disabled = _disable_user(user_id)
+                if disabled:
+                    callback(current_user, None,None, {"disabled_at": disabled_at})
+                    raise UserDisabled(f"Face is matching with user {similar_users[0]}, distance {distances[0]} {res['distance']} < {res['threshold']}")
     url = put_primary_photo(user_id,photo_stream.stream)
-    now, rows = _set_primary_metadata(user_id, md, url)
+    upd, rows = _set_primary_metadata(user_id, md, url)
     if rows > 0:
-        return now
-    else:
-        now, rows = _set_primary_metadata(user_id, md, url)
-        return now
+        try:
+            callback(current_user, upd,None,user)
+        except UnauthorizedFromWebhook as e:
+            _delete_metadata(upd["user_picture_id"])
+            raise e
+        except requests.RequestException as e:
+            _delete_metadata(upd["user_picture_id"])
+            raise e # goes to 5xx
 
-
-def check_similar_user_and_register_metadata(user_id: str, raw_pics: list):
+def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_pics: list):
     user_reference_metadata = _get_primary_metadata(user_id)
     if user_reference_metadata is None:
         raise MetadataNotFound(f"User {user_id} have no registered primary metadata yet")
-    user_reference_metadata = user_reference_metadata["face_metadata"]
+    md_vector = user_reference_metadata["face_metadata"]
     pics = [loadImageFromStream(p) for p in raw_pics]
-    md, bestIndex, euclidian,threshold = extract_and_compare_metadatas(user_reference_metadata, pics,_model)
+    md, bestIndex, euclidian,threshold = extract_and_compare_metadatas(md_vector, pics,_model)
     if bestIndex == -1:
         # user is not the same as on primary photo - let's try with more complex but slower model as well to reduce false-negatives
         primary_photo = get_primary_photo(user_id)
-        user_reference_metadata = distance.l2_normalize(DeepFace.represent(
+        md_vector = distance.l2_normalize(DeepFace.represent(
             img_path=loadImageFromStream(io.BytesIO(primary_photo)),
             model_name=_model_fallback,
             enforce_detection=True,
@@ -136,16 +153,27 @@ def check_similar_user_and_register_metadata(user_id: str, raw_pics: list):
             align=True,
             normalization="base",
         )[0]["embedding"])
-        mdFallback, bestIndex, euclidian,threshold = extract_and_compare_metadatas(user_reference_metadata, pics,_model_fallback)
+        mdFallback, bestIndex, euclidian,threshold = extract_and_compare_metadatas(md_vector, pics,_model_fallback)
         if bestIndex == -1:
             raise NotSameUser(f"user mismatch: distance is greater than {threshold}: {euclidian}")
     url = put_secondary_photo(user_id,raw_pics[bestIndex].stream)
-    now, rows = _update_secondary_metadata(user_id,md[bestIndex], url)
+    prev_state = _get_secondary_metadata(user_id)
+    upd, rows = _update_secondary_metadata(user_id,md[bestIndex], url)
     if rows > 0:
-        return bestIndex, euclidian, now
+        try:
+            callback(current_user, user_reference_metadata,upd,_get_user(user_id))
+        except UnauthorizedFromWebhook as e:
+            if prev_state is not None:
+                _update_secondary_metadata(user_id,prev_state["face_metadata"], prev_state["url"])
+            raise e
+        except requests.RequestException as e:
+            if prev_state is not None:
+                _update_secondary_metadata(user_id,prev_state["face_metadata"], prev_state["url"])
+            raise e # goes to 5xx
+        return bestIndex, euclidian, upd["uploaded_at"]
     else:
-        now, rows = _update_secondary_metadata(user_id,md[bestIndex])
-        return bestIndex, euclidian, now
+        upd, rows = _update_secondary_metadata(user_id,md[bestIndex])
+        return bestIndex, euclidian, upd["uploaded_at"]
 
 
 def extract_and_compare_metadatas(user_reference_metadata: list, pics, model):
@@ -185,7 +213,6 @@ def loadImageFromStream(p):
     # img = np.asarray(im)
     # return img
     return img
-
 
 def get_status(user_id: str):
     primary = _get_primary_metadata(user_id)
