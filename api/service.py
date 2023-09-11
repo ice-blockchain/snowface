@@ -451,6 +451,9 @@ def _predict(user_id, session_id, model, images):
     for img in images:
         loaded_image = loadImageFromStream(img)
         if loaded_image.shape[0] != model.img_size or loaded_image.shape[1] != model.img_size:
+            if _update_last_negative_request_at(user_id) is False:
+                raise UpsertException(f"update last negative request time failed for user:{user_id}")
+
             raise WrongImageSizeException(f"wrong image size for user:{user_id}, session:{session_id}")
 
         face_img_list.append(loaded_image)
