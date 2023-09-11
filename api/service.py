@@ -1,47 +1,47 @@
-import time
-
-from deepface import DeepFace
-from milvus import (
-    get_primary_metadata as _get_primary_metadata,
-    get_secondary_metadata as _get_secondary_metadata,
-    update_secondary_metadata as _update_secondary_metadata,
-    find_similar_users as _find_similar_users,
-    set_primary_metadata as _set_primary_metadata,
-    update_user          as _update_user,
-    disable_user         as _disable_user,
-    get_user             as _get_user,
-    update_emotion_sequence_and_best_score as _update_emotion_sequence_and_best_score,
-    remove_session as _remove_session
-)
-from minio_uploader import put_secondary_photo, put_primary_photo
-from flask import current_app
 import uuid
-import requests
 import glob
 import os
 import random
 import time
 import shutil
 from os.path import exists
+import requests
+from flask import current_app
 
+from milvus import (
+    get_primary_metadata                   as _get_primary_metadata,
+    get_secondary_metadata                 as _get_secondary_metadata,
+    update_secondary_metadata              as _update_secondary_metadata,
+    find_similar_users                     as _find_similar_users,
+    set_primary_metadata                   as _set_primary_metadata,
+    update_user                            as _update_user,
+    disable_user                           as _disable_user,
+    get_user                               as _get_user,
+    update_emotion_sequence_and_best_score as _update_emotion_sequence_and_best_score,
+    remove_session                         as _remove_session,
+    update_last_negative_request_at        as _update_last_negative_request_at
+)
 from PIL import Image
 import cv2
 
 import numpy as np, io, requests
 from deepface.commons import functions, distance
 from concurrent.futures import ThreadPoolExecutor, wait
+from deepface import DeepFace
+from deepface.commons import distance
+from minio_uploader import put_secondary_photo, put_primary_photo
+import numpy as np
 
 _model = "SFace"
 _model_fallback = "ArcFace"#"Facenet" #"VGG-Face"
 _detector_high_quality = "yunet"
 _detector_low_quality = "yunet" # TODO: test with skip, if we gonna get proper photos from FE
 _similarity_metric = "euclidean_l2"
+_max_executor_workers = 2
+_default_emotions_num = 3
+_images_count_per_call = 15
 _min_images_with_emotions_to_proceed = 1
-
-_MAX_WORKERS = 2
-_DEFAULT_EMOTIONS_NUM = 3
-_ONE_CALL_IMAGES_COUNT = 15
-_DEFAULT_EMOTIONS_LIST = DeepFace.build_model("Emotion").idx_to_class
+_default_emotions_list = DeepFace.build_model("Emotion").idx_to_class
 
 def represent(img_path, model_name, detector_backend, enforce_detection, align):
     result = {}
@@ -305,10 +305,6 @@ class WrongImageSizeException(Exception):
     def __init__(self, message):
         super().__init__(message)
 
-class MaxEmotionsCountReached(Exception):
-    def __init__(self, message):
-        super().__init__(message)
-
 def _count_user_images(user_id):
     return len(glob.glob(f"{current_app.config['IMG_STORAGE_PATH']}{user_id}/*.jpg"))
 
@@ -338,11 +334,11 @@ def _remove_not_best_user_images(img_storage_path, user_id, best_images_indexes)
 
 def _get_unique_emotion(current_emotions_list: list):
     if len(current_emotions_list) == 0:
-        choice = random.choice(list(_DEFAULT_EMOTIONS_LIST.values()))
+        choice = random.choice(list(_default_emotions_list.values()))
 
         return choice.lower(), False
 
-    diff  = set(_DEFAULT_EMOTIONS_LIST.values()) - set(current_emotions_list)
+    diff  = set(_default_emotions_list.values()) - set(current_emotions_list)
     if len(diff) == 0:
         return None, True
 
@@ -356,9 +352,9 @@ def emotions(user_id):
 
     if usr is not None:
         if usr['disabled_at'] is not None and usr['disabled_at'] > 0:
-            return None, usr['session_id'], True
+            raise UserDisabled(f"user:{usr['user_id']} disabled")
 
-        if now - usr['session_started_at'] < current_app.config['LIMIT_RATE']:
+        if now - usr['session_started_at'] <= current_app.config['LIMIT_RATE']:
             raise RateLimitException(f'rate limit exception for user_id:{user_id}')
 
         _remove_session(user_id)
@@ -366,7 +362,7 @@ def emotions(user_id):
 
     session_id = str(uuid.uuid4())
     emotions_list = []
-    for _ in range(0, _DEFAULT_EMOTIONS_NUM):
+    for _ in range(0, _default_emotions_num):
         new_emotion, completed = _get_unique_emotion(list(emotions_list))
         emotions_list.append(new_emotion)
 
@@ -382,7 +378,7 @@ def emotions(user_id):
     if res is False:
         raise UpsertException(f"can't insert user:{user_id}")
 
-    return emotions_list, session_id, False
+    return emotions_list, session_id
 
 def _validate_session(usr, user_id, session_id):
     if usr is None:
@@ -391,11 +387,14 @@ def _validate_session(usr, user_id, session_id):
     if usr['disabled_at'] is not None and usr['disabled_at'] > 0:
         raise UserDisabled(f"user:{usr['user_id']} disabled")
 
+    now = int(time.time()*1e9)
+    if now - usr['last_negative_request_at'] <= current_app.config['LIMIT_RATE_NEGATIVE']:
+        raise RateLimitException(f"limit rate time didn't pass from the last negative request for user:{user_id}")
+
     if usr['session_id'] != session_id:
         raise SessionNotFoundException(f"wrong session:{session_id} for user:{usr['user_id']}")
 
-    now = int(time.time()*1e9)
-    if now - usr['session_started_at'] > current_app.config['SESSION_DURATION']:
+    if now - usr['session_started_at'] >= current_app.config['SESSION_DURATION']:
         raise SessionTimeOutException(f"session of user:{usr['user_id']} timed out")
 
 def _generate_emotions(usr):
@@ -413,16 +412,13 @@ def add_additional_emotion(session_id, user_id):
     _validate_session(usr=usr, user_id=user_id, session_id=session_id)
 
     current_emotions_list = usr['emotions'].split(',')
-    if usr['emotion_sequence'] != len(current_emotions_list):
-        return current_emotions_list, session_id, False
-
-    if len(current_emotions_list) >= current_app.config['MAX_EMOTION_COUNT']:
-        raise MaxEmotionsCountReached(f"max emotions count has been reached for user:{user_id}")
+    if usr['emotion_sequence'] != len(current_emotions_list) or len(current_emotions_list) >= current_app.config['MAX_EMOTION_COUNT']:
+        return current_emotions_list, session_id
 
     emotion_sequence = usr['emotion_sequence']
     emotions_list = _generate_emotions(usr)
 
-    res = _update_user(
+    if _update_user(
         user_id=user_id,
         session_id=session_id,
         emotions=",".join(emotions_list),
@@ -430,18 +426,17 @@ def add_additional_emotion(session_id, user_id):
         disabled_at=0,
         emotion_sequence=emotion_sequence,
         best_pictures_score=usr['best_pictures_score']
-    )
-    if res is False:
+    ) is False:
         raise UpsertException(f"can't update user:{user_id} by new emotion")
 
-    return emotions_list, session_id, False
+    return emotions_list, session_id
 
 def _generate_best_scores(usr, scores, model, images_count):
-    idx = int(images_count / _ONE_CALL_IMAGES_COUNT)
+    idx = int(images_count / _images_count_per_call)
 
     neutral_idx = model.class_to_idx.get("Neutral")
     neutral_scores = [s[neutral_idx]for s in scores]
-    usr['best_pictures_score'][idx * _ONE_CALL_IMAGES_COUNT:(idx+1)*_ONE_CALL_IMAGES_COUNT] = neutral_scores
+    usr['best_pictures_score'][idx * _images_count_per_call:(idx+1)*_images_count_per_call] = neutral_scores
 
     if _update_emotion_sequence_and_best_score(
         user_id=usr['user_id'],
@@ -450,12 +445,12 @@ def _generate_best_scores(usr, scores, model, images_count):
     ) is not True:
         raise UpsertException(f"can't update emotion sequence and best score for user_id:{usr['user_id']}")
 
-def _predict(model, images):
+def _predict(user_id, session_id, model, images):
     face_img_list = []
     for img in images:
         loaded_image = loadImageFromStream(img)
         if loaded_image.shape[0] != model.img_size or loaded_image.shape[1] != model.img_size:
-            raise WrongImageSizeException(f'wrong image size for user:{user_id}, session:{session_id}')
+            raise WrongImageSizeException(f"wrong image size for user:{user_id}, session:{session_id}")
 
         face_img_list.append(loaded_image)
 
@@ -488,7 +483,7 @@ def _finish_session(usr, token):
     for idx in np.argpartition(usr['best_pictures_score'], -current_app.config['TOTAL_BEST_PICTURES'])[-current_app.config['TOTAL_BEST_PICTURES']:]:
         best_indexes.append(str(idx))
 
-    with ThreadPoolExecutor(max_workers=_MAX_WORKERS) as executor:
+    with ThreadPoolExecutor(max_workers=_max_executor_workers) as executor:
         futures = [
             executor.submit(
                 _remove_not_best_user_images,
@@ -517,21 +512,36 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
 
     current_emotions_list = usr['emotions'].split(',')
     if usr['emotion_sequence'] >= len(current_emotions_list):
+        if _update_last_negative_request_at(user_id) is False:
+            raise UpsertException(f"update last negative request time failed for user:{user_id}")
+
         return False, False
 
     current_emotion = current_emotions_list[usr['emotion_sequence']]
     if len(current_emotions_list) >= current_app.config['MAX_EMOTION_COUNT']:
+        if _update_last_negative_request_at(user_id) is False:
+            raise UpsertException(f"update last negative request time failed for user:{user_id}")
+
         return False, True
 
     model = DeepFace.build_model("Emotion")
-    emotion, scores = _predict(model, images)
+    emotion, scores = _predict(
+        user_id=user_id,
+        session_id=session_id,
+        model=model,
+        images=images
+    )
+
     if emotion != current_emotion:
         if _update_emotion_sequence_and_best_score(
             user_id=user_id,
             emotion_sequence=usr['emotion_sequence']+1,
-            best_score = usr["best_pictures_score"]
-        ) is not True:
+            best_score = usr['best_pictures_score']
+        ) is False:
             raise UpsertException(f"can\'t update emotion sequence for user_id:{user_id}")
+
+        if _update_last_negative_request_at(user_id) is False:
+            raise UpsertException(f"update last negative request time failed for user:{user_id}")
 
         return False, False
 
@@ -545,7 +555,7 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
 
     _generate_best_scores(usr=usr, scores=scores, model=model, images_count=images_count)
 
-    if _count_user_images(user_id) == _ONE_CALL_IMAGES_COUNT * _DEFAULT_EMOTIONS_NUM:
+    if _count_user_images(user_id) == _images_count_per_call * _default_emotions_num:
         _finish_session(usr, token)
 
         return True, True

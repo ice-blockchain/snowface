@@ -12,12 +12,12 @@ _session_not_found = "SESSION_NOT_FOUND"
 _session_timed_out = "SESSION_TIMED_OUT"
 _invalid_properties = "INVALID_PROPERTIES"
 _rate_limit_exceeded = "RATE_LIMIT_EXCEEDED"
+_rate_limit_negative_exceeded = "RATE_LIMIT_NEGATIVE_EXCEEDED"
 _no_faces = "NO_FACES"
 _no_primary_metadata = "NO_PRIMARY_METADATA"
 _user_not_the_same = "USER_NOT_THE_SAME"
 _user_disabled = "USER_DISABLED"
 _already_uploaded = "ALREADY_UPLOADED"
-_max_emotions_count_reached = "MAX_EMOTIONS_COUNT_REACHED"
 
 _primary_photo_rate_limiter = MovingWindowRateLimiter(storage=MemoryStorage())
 _primary_photo_rate_limiter_rate = None
@@ -187,13 +187,13 @@ def user_status(current_user, user_id):
 @auth_required
 def emotions(current_user, user_id):
     try:
-        emotions_list, session_id, disabled = service.emotions(user_id=user_id)
-        if disabled == True:
-            return {'message': 'user is blocked', 'code': _user_disabled}, 403
+        emotions_list, session_id = service.emotions(user_id=user_id)
 
         return {'emotions': emotions_list, 'session_id': session_id}
+    except service.UserDisabled as e:
+        return {'message': str(e), 'code': _user_disabled}, 403
     except service.RateLimitException as e:
-        return {'message': str(e), 'code': _rate_limit_exceeded}, 403
+        return {'message': str(e), 'code': _rate_limit_exceeded}, 429
     except Exception as e:
         return {"message":"oops, an error occured"}, 500
 
@@ -201,19 +201,17 @@ def emotions(current_user, user_id):
 @auth_required
 def additional_emotion(current_user, user_id, session_id):
     try:
-        emotions_list, session_id, disabled = service.add_additional_emotion(user_id=user_id, session_id=session_id)
-        if disabled == True:
-            return {'message': 'user is blocked', 'code': _user_disabled}, 403
+        emotions_list, session_id = service.add_additional_emotion(user_id=user_id, session_id=session_id)
 
         return {'emotions': emotions_list, 'session_id': session_id}
-    except service.MaxEmotionsCountReached as e:
-        return {'message': str(e), 'code': _max_emotions_count_reached}, 400
+    except service.UserDisabled as e:
+        return {'message': str(e), 'code': _user_disabled}, 403
     except service.SessionTimeOutException as e:
         return {'message': str(e), 'code': _session_timed_out}, 403
     except service.SessionNotFoundException as e:
-        return {'message': str(e), 'code': _session_not_found}, 403
-    except service.UpsertException as e:
-        return {"message":"oops, an error occured"}, 500
+        return {'message': str(e), 'code': _session_not_found}, 404
+    except service.RateLimitException as e:
+        return {'message': str(e), 'code': _rate_limit_negative_exceeded}, 429
     except Exception as e:
         return {"message":"oops, an error occured"}, 500
 
@@ -230,13 +228,15 @@ def liveness(current_user, user_id, session_id):
         result, session_ended = service.process_images(token=current_user.raw_token, user_id=user_id, session_id=session_id, images=images)
 
         return {'result': result, 'session_ended': session_ended}
-    except service.UserDisabled as e:
-        return {'message': 'user is blocked', 'code': _user_disabled}, 403
     except service.WrongImageSizeException as e:
         return {'message': str(e), 'code': _invalid_properties}, 400
-    except service.SessionNotFoundException as e:
-        return {'message': str(e), 'code': _session_not_found}, 404
+    except service.UserDisabled as e:
+        return {'message': str(e), 'code': _user_disabled}, 403
     except service.SessionTimeOutException as e:
         return {'message': str(e), 'code': _session_timed_out}, 403
+    except service.SessionNotFoundException as e:
+        return {'message': str(e), 'code': _session_not_found}, 404
+    except service.RateLimitException as e:
+        return {'message': str(e), 'code': _rate_limit_negative_exceeded}, 429
     except Exception as e:
         return {"message":"oops, an error occured"}, 500

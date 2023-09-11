@@ -49,6 +49,7 @@ def create_users_collection(name):
         FieldSchema(name="emotions", dtype=DataType.VARCHAR, max_length=128),
         FieldSchema(name="session_started_at", dtype=DataType.INT64),
         FieldSchema(name="disabled_at", dtype=DataType.INT64),
+        FieldSchema(name="last_negative_request_at", dtype=DataType.INT64),
         FieldSchema(name="emotion_sequence", dtype=DataType.INT64),
         FieldSchema(name="best_pictures_score", dtype=DataType.FLOAT_VECTOR, dim = 45),
     ]
@@ -230,9 +231,9 @@ def disable_user(user_id: str):
     user = get_user(user_id)
     now = int(time.time()*1e9)
     if user is not None:
-        insertedRows = users.upsert([[user_id], [user["session_id"]], [user["emotions"]],[user["session_started_at"]], [now], [user["best_pictures_score"]]]).upsert_count
+        insertedRows = users.upsert([[user_id], [user["session_id"]], [user["emotions"]],[user["session_started_at"]], [now], [user["last_negative_request_at"]], [user["emotion_sequence"]], [user["best_pictures_score"]]]).upsert_count
     else:
-        insertedRows = users.upsert([[user_id], [""], [""],[0],[0],[now], [np.array([0.0]*45)]]).upsert_count
+        insertedRows = users.upsert([[user_id], [""], [""],[0], [now], [0], [0], [np.array([0.0]*45)]]).upsert_count
     return insertedRows > 0
 
 def update_user(
@@ -254,6 +255,7 @@ def update_user(
             [emotions],
             [session_started_at],
             [disabled_at],
+            [user['last_negative_request_at']],
             [emotion_sequence],
             [best_pictures_score]
         ]).upsert_count
@@ -263,6 +265,7 @@ def update_user(
             [session_id],
             [emotions],
             [now],
+            [0],
             [0],
             [0],
             [np.array([0.0]*45)]
@@ -279,8 +282,26 @@ def update_emotion_sequence_and_best_score(user_id: str, emotion_sequence: int, 
         [user['emotions']],
         [user['session_started_at']],
         [user['disabled_at']],
+        [user['last_negative_request_at']],
         [emotion_sequence],
         [best_score]
+    ]).upsert_count
+
+    return insertedRows > 0
+
+def update_last_negative_request_at(user_id: str):
+    users = get_users_collection()
+    user = get_user(user_id)
+    now = int(time.time()*1e9)
+    insertedRows = users.upsert([
+        [user_id],
+        [user['session_id']],
+        [user['emotions']],
+        [user['session_started_at']],
+        [user['disabled_at']],
+        [now],
+        [user['emotion_sequence']],
+        [user['best_pictures_score']]
     ]).upsert_count
 
     return insertedRows > 0
@@ -291,7 +312,7 @@ def get_user(user_id: str):
         expr = f"user_id == \"{user_id}\"",
         offset = 0,
         limit = 1,
-        output_fields = ["user_id", "session_id", "emotions", "session_started_at", "disabled_at", "emotion_sequence", "best_pictures_score"],
+        output_fields = ["user_id", "session_id", "emotions", "session_started_at", "disabled_at", "last_negative_request_at", "emotion_sequence", "best_pictures_score"],
     )
     if len(res) == 0:
         return None

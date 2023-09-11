@@ -30,6 +30,7 @@ def create_app():
     app.config['IMG_STORAGE_PATH'] = os.environ.get('IMG_STORAGE_PATH')
     app.config['SESSION_DURATION'] = int(os.environ.get('SESSION_DURATION', 600)) * int(1e9)
     app.config['LIMIT_RATE'] = int(os.environ.get('LIMIT_RATE')) * int(1e9)
+    app.config['LIMIT_RATE_NEGATIVE'] = int(os.environ.get('LIMIT_RATE_NEGATIVE')) * int(1e9)
     app.config['BASE_SIMILARITY_ENDPOINT'] = os.environ.get('BASE_SIMILARITY_ENDPOINT')
     app.config['TOTAL_BEST_PICTURES'] = int(os.environ.get('TOTAL_BEST_PICTURES', 7))
     app.config['MAX_EMOTION_COUNT'] = int(os.environ.get('MAX_EMOTION_COUNT', 10))
