@@ -25,6 +25,7 @@ class Token:
         self.email = email
         self.role = role
         self._provider = provider
+        self.raw_token = token
     def isICE(self):
         return self._provider == "ice"
 def auth_required(f):
