@@ -317,7 +317,7 @@ def _remove_user_images(user_id):
     for filename in glob.glob(f"{dirname}/*.jpg"):
         os.remove(filename)
 
-    if _count_user_images(user_id=user_id) == 0:
+    if _count_user_images(user_id) == 0:
         shutil.rmtree(dirname)
 
 def _remove_not_best_user_images(img_storage_path, user_id, best_images_indexes):
@@ -364,7 +364,7 @@ def emotions(user_id):
     session_id = str(uuid.uuid4())
     emotions_list = []
     for _ in range(0, _default_emotions_num):
-        new_emotion, completed = _get_unique_emotion(list(emotions_list))
+        new_emotion, _ = _get_unique_emotion(list(emotions_list))
         emotions_list.append(new_emotion)
 
     res = _update_user(
@@ -374,7 +374,8 @@ def emotions(user_id):
         session_started_at=now,
         disabled_at=0,
         emotion_sequence=0,
-        best_pictures_score=np.array([0.0]*45)
+        best_pictures_score=np.array([0.0]*45),
+        now=now
     )
     if res is False:
         raise UpsertException(f"can't insert user:{user_id}")
@@ -402,12 +403,13 @@ def _generate_emotions(usr):
     emotions_list = usr['emotions'].split(',')
     new_emotion, completed = _get_unique_emotion(usr['emotions'].split(','))
     if completed is True:
-        new_emotion, completed = _get_unique_emotion(list())
+        new_emotion, _ = _get_unique_emotion(list())
     emotions_list.append(new_emotion)
 
     return emotions_list
 
 def add_additional_emotion(session_id, user_id):
+    now = int(time.time()*1e9)
     usr = _get_user(user_id)
 
     _validate_session(usr=usr, user_id=user_id, session_id=session_id)
@@ -426,7 +428,8 @@ def add_additional_emotion(session_id, user_id):
         session_started_at=usr['session_started_at'],
         disabled_at=0,
         emotion_sequence=emotion_sequence,
-        best_pictures_score=usr['best_pictures_score']
+        best_pictures_score=usr['best_pictures_score'],
+        now=now
     ) is False:
         raise UpsertException(f"can't update user:{user_id} by new emotion")
 
@@ -446,12 +449,12 @@ def _generate_best_scores(usr, scores, model, images_count):
     ) is not True:
         raise UpsertException(f"can't update emotion sequence and best score for user_id:{usr['user_id']}")
 
-def _predict(user_id, session_id, model, images):
+def _predict(user_id, session_id, model, images, now):
     face_img_list = []
     for img in images:
         loaded_image = loadImageFromStream(img)
         if loaded_image.shape[0] != model.img_size or loaded_image.shape[1] != model.img_size:
-            if _update_last_negative_request_at(user_id) is False:
+            if _update_last_negative_request_at(user_id=user_id, now=now) is False:
                 raise UpsertException(f"update last negative request time failed for user:{user_id}")
 
             raise WrongImageSizeException(f"wrong image size for user:{user_id}, session:{session_id}")
@@ -463,13 +466,30 @@ def _predict(user_id, session_id, model, images):
 
     return emotion, scores
 
+def _rollback_images_device_modulo_15(user_id: str):
+    images_count = _count_user_images(user_id)
+    if images_count > _images_count_per_call:
+        obsolete = images_count % _images_count_per_call
+        if obsolete > 0:
+            local_path = f"{current_app.config['IMG_STORAGE_PATH']}{user_id}/"
+            print('images_count - obsolete: ', images_count - obsolete)
+            print('images_count: ', images_count)
+            for idx in range(images_count - obsolete, images_count):
+                os.remove(f"{local_path}{idx}.jpg")
+    elif images_count > 0 and images_count < _images_count_per_call:
+        _remove_user_images(user_id)
+
 def _save_image(image, idx, user_id):
-    local_path = f"{current_app.config['IMG_STORAGE_PATH']}{user_id}/"
-    if not os.path.exists(local_path):
-        os.makedirs(local_path)
-    filename = f'{idx}.jpg'
-    image.seek(0)
-    image.save(os.path.join(local_path, filename))
+    try:
+        local_path = f"{current_app.config['IMG_STORAGE_PATH']}{user_id}/"
+        if not os.path.exists(local_path):
+            os.makedirs(local_path)
+        filename = f'{idx}.jpg'
+        image.seek(0)
+        image.save(os.path.join(local_path, filename))
+    except Exception as e:
+        _rollback_images_device_modulo_15(user_id)
+        raise e
 
 def _send_best_images(img_storage_path, base_similarity_endpoint, token, user_id, best_images_indexes):
     files = []
@@ -513,6 +533,7 @@ def _finish_session(usr, token):
     _remove_session(user_id=usr['user_id'])
 
 def process_images(token: str, user_id: str, session_id: str, images:list):
+    now = int(time.time()*1e9)
     usr = _get_user(user_id)
 
     _validate_session(usr=usr, user_id=user_id, session_id=session_id)
@@ -536,18 +557,19 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
         user_id=user_id,
         session_id=session_id,
         model=model,
-        images=images
+        images=images,
+        now=now
     )
 
     if emotion != current_emotion:
         if _update_emotion_sequence_and_best_score(
             user_id=user_id,
             emotion_sequence=usr['emotion_sequence']+1,
-            best_score = usr['best_pictures_score']
+            best_score=usr['best_pictures_score']
         ) is False:
             raise UpsertException(f"can\'t update emotion sequence for user_id:{user_id}")
 
-        if _update_last_negative_request_at(user_id) is False:
+        if _update_last_negative_request_at(user_id=user_id, now=now) is False:
             raise UpsertException(f"update last negative request time failed for user:{user_id}")
 
         return False, False

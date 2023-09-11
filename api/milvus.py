@@ -254,11 +254,11 @@ def update_user(
     session_started_at,
     disabled_at,
     emotion_sequence,
-    best_pictures_score
+    best_pictures_score,
+    now
 ):
     users = get_users_collection()
     user = get_user(user_id)
-    now = int(time.time()*1e9)
     if user is not None:
         insertedRows = users.upsert([
             [user_id],
@@ -300,10 +300,9 @@ def update_emotion_sequence_and_best_score(user_id: str, emotion_sequence: int, 
 
     return insertedRows > 0
 
-def update_last_negative_request_at(user_id: str):
+def update_last_negative_request_at(user_id: str, now: int):
     users = get_users_collection()
     user = get_user(user_id)
-    now = int(time.time()*1e9)
     insertedRows = users.upsert([
         [user_id],
         [user['session_id']],
