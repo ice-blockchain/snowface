@@ -132,7 +132,7 @@ def analyze():
 def similar(current_user, user_id):
     try:
         bestIndex, euclidian, updateTime = service.check_similarity_and_update_secondary_photo(current_user, user_id, request.files.getlist("image"))
-        return  {"userID":user_id, "bestIndex":bestIndex, "distance": euclidian, "secondaryPhotoUpdatedAt":updateTime}
+        return  {"userId":user_id, "bestIndex":bestIndex, "distance": euclidian, "secondaryPhotoUpdatedAt":updateTime}
     except exceptions.MetadataNotFound as e:
         logging.error(e)
         return {"message": str(e), "code":_no_primary_metadata}, 400

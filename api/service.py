@@ -250,9 +250,9 @@ def get_status(user_id: str):
         lastVerified = 0
     disabled = _get_user(user_id)
     return {
-        "user_id": user_id,
-        "primary_photo_uploaded": primaryUploaded,
-        "last_verified": lastVerified,
+        "userId": user_id,
+        "primaryPhotoUploaded": primaryUploaded,
+        "lastVerified": lastVerified,
         "disabled": disabled is not None and disabled["disabled_at"] > 0
     }
 
