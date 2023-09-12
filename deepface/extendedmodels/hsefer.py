@@ -48,9 +48,7 @@ class HSEmotionRecognizer:
         return x.transpose(2, 0, 1).astype("float32")[np.newaxis,...]
 
     def predict(self, face_img, verbose = 0):
-        img = (face_img[0] * 255).astype(
-            np.uint8
-        )
+
         _,emotions = self.predict_emotions(face_img)
 
         return numpy.array([emotions])

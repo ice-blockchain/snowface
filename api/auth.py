@@ -18,6 +18,7 @@ class Token:
     email: str
     role: str
     raw_token: str
+    metadata: str
     _provider: str
     def __init__(self, token, user_id: str, email: str, role: str, provider: str):
         self.raw_token = token
@@ -26,6 +27,7 @@ class Token:
         self.role = role
         self._provider = provider
         self.raw_token = token
+        self.metadata = ""
     def isICE(self):
         return self._provider == "ice"
 def auth_required(f):
@@ -114,4 +116,5 @@ def _modify_with_metadata(user, mdToken):
         md_user_id = metadata[_firebase_id]
     if md_user_id:
         user.user_id = md_user_id
+        user.metadata = mdToken
     return user

@@ -5,7 +5,7 @@ import random
 import time
 import shutil
 from os.path import exists
-import requests
+from webhook import callback, UnauthorizedFromWebhook
 from flask import current_app
 
 from milvus import (
@@ -30,7 +30,7 @@ from deepface.commons import functions, distance
 from concurrent.futures import ThreadPoolExecutor, wait
 from deepface import DeepFace
 from deepface.commons import distance
-from minio_uploader import put_secondary_photo, put_primary_photo
+from minio_uploader import put_secondary_photo, put_primary_photo, get_primary_photo
 import numpy as np
 
 _model = "SFace"
@@ -87,7 +87,7 @@ def analyze(img_path, actions, detector_backend, enforce_detection, align):
 def init_models():
     DeepFace.build_model(_model)
     DeepFace.build_model(_model_fallback)
-    DeepFace.build_model("Emotion")
+    emotion = DeepFace.build_model("Emotion")
     samplePerson = requests.get(
         url="https://thispersondoesnotexist.com/", verify=False
     )
@@ -95,8 +95,11 @@ def init_models():
         img = loadImageFromStream(io.BytesIO(samplePerson.content))
         DeepFace.represent(img_path=img, detector_backend=_detector_high_quality, model_name=_model)
         DeepFace.represent(img_path=img, detector_backend=_detector_high_quality, model_name=_model_fallback)
+        emotion.predict(img)
+
 
 def set_primary_photo(current_user, user_id: str, photo_stream):
+    now = time.time_ns()
     user = _get_user(user_id)
     if user is not None and user["disabled_at"] > 0:
         raise UserDisabled(f"User {user_id} was disabled at {user['disabled_at']}")
@@ -123,7 +126,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
         secondary_md = _get_secondary_metadata(similar_users[0])
         if secondary_md:
             bestIndex, euclidian = compare_metadatas([secondary_md["face_metadata"],md], threshold)
-            if bestIndex != -1 and _disable_user(user_id):
+            if bestIndex != -1 and _disable_user(now, user_id):
                 raise UserDisabled(f"Face is matching with user {similar_users[0]}, distance {distances[0]} {euclidian} < {threshold}")
         else:
             # that similar user dont have 2nd pic yet,but we can re-check with fallback model
@@ -139,12 +142,12 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
             )
             print(res['distance'],res['threshold'])
             if res["verified"]:
-                disabled_at, disabled = _disable_user(user_id)
+                disabled = _disable_user(now,user_id)
                 if disabled:
-                    callback(current_user, None,None, {"disabled_at": disabled_at})
+                    callback(current_user, None,None, {"disabled_at": now})
                     raise UserDisabled(f"Face is matching with user {similar_users[0]}, distance {distances[0]} {res['distance']} < {res['threshold']}")
     url = put_primary_photo(user_id,photo_stream.stream)
-    upd, rows = _set_primary_metadata(user_id, md, url)
+    upd, rows = _set_primary_metadata(now, user_id, md, url)
     if rows > 0:
         try:
             callback(current_user, upd,None,user)
@@ -156,6 +159,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
             raise e # goes to 5xx
 
 def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_pics: list):
+    now = time.time_ns()
     user_reference_metadata = _get_primary_metadata(user_id)
     if user_reference_metadata is None:
         raise MetadataNotFound(f"User {user_id} have no registered primary metadata yet")
@@ -178,21 +182,18 @@ def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_
             raise NotSameUser(f"user mismatch: distance is greater than {threshold}: {euclidian}")
     url = put_secondary_photo(user_id,raw_pics[bestIndex].stream)
     prev_state = _get_secondary_metadata(user_id)
-    upd, rows = _update_secondary_metadata(user_id,md[bestIndex], url)
+    upd, rows = _update_secondary_metadata(now,user_id,md[bestIndex], url)
     if rows > 0:
         try:
             callback(current_user, user_reference_metadata,upd,_get_user(user_id))
         except UnauthorizedFromWebhook as e:
             if prev_state is not None:
-                _update_secondary_metadata(user_id,prev_state["face_metadata"], prev_state["url"])
+                _update_secondary_metadata(prev_state["uploaded_at"],user_id,prev_state["face_metadata"], prev_state["url"])
             raise e
         except requests.RequestException as e:
             if prev_state is not None:
-                _update_secondary_metadata(user_id,prev_state["face_metadata"], prev_state["url"])
+                _update_secondary_metadata(prev_state["uploaded_at"],user_id,prev_state["face_metadata"], prev_state["url"])
             raise e # goes to 5xx
-        return bestIndex, euclidian, upd["uploaded_at"]
-    else:
-        upd, rows = _update_secondary_metadata(user_id,md[bestIndex])
         return bestIndex, euclidian, upd["uploaded_at"]
 
 

@@ -5,6 +5,7 @@ from auth import auth_required
 from limits.storage import MemoryStorage
 from limits.strategies import MovingWindowRateLimiter
 from limits import parse
+from webhook import UnauthorizedFromWebhook
 import logging
 blueprint = Blueprint("routes", __name__)
 
@@ -28,8 +29,11 @@ def init_rate_limiters(app):
     else:
         _primary_photo_rate_limiter_rate = None
 
-@blueprint.route("/", methods = ["GET"])
+@blueprint.route("/", methods = ["GET","POST"])
 def home():
+    if request.method == "POST":
+        print(request.data)
+        return str(request.data)
     return "<h1>Welcome to DeepFace API!</h1>"
 
 

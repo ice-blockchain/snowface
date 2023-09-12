@@ -202,10 +202,9 @@ def find_similar_users(user_id: str,metadata: list, threshold: float):
     return found_user_ids, distances
 
 
-def update_secondary_metadata(user_id:str, metadata: list, url: str):
+def update_secondary_metadata(now: int, user_id:str, metadata: list, url: str):
     faces = get_faces_collection()
     pk = f"{user_id}~{_picture_secondary}"
-    now = int(time.time()*1e9)
     rowsCount = faces.upsert([[pk],[user_id],[np.int32(_picture_secondary)],[metadata],[url],[now]]).upsert_count
     return {
         "user_picture_id": pk,
@@ -216,10 +215,9 @@ def update_secondary_metadata(user_id:str, metadata: list, url: str):
         "uploaded_at": now
     }, rowsCount
 
-def set_primary_metadata(user_id:str, metadata: list, url: str):
+def set_primary_metadata(now: int, user_id:str, metadata: list, url: str):
     faces = get_faces_collection()
     pk = f"{user_id}~{_picture_primary}"
-    now = int(time.time()*1e9)
     insertedRows = faces.insert([[pk],[user_id],[np.int32(_picture_primary)],[metadata],[url],[now]]).insert_count
     # t = time.time()
     # faces.flush()
@@ -237,10 +235,9 @@ def delete_metadata(pk:str):
     faces = get_faces_collection()
     faces.delete(f"user_picture_id in [\"{pk}\"]")
 
-def disable_user(user_id: str):
+def disable_user(now: int, user_id: str):
     users = get_users_collection()
     user = get_user(user_id)
-    now = int(time.time()*1e9)
     if user is not None:
         insertedRows = users.upsert([[user_id], [user["session_id"]], [user["emotions"]],[user["session_started_at"]], [now], [user["last_negative_request_at"]], [user["emotion_sequence"]], [user["best_pictures_score"]]]).upsert_count
     else:

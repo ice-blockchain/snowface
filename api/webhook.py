@@ -1,7 +1,7 @@
 from flask import current_app
 import requests, backoff
-from requests.auth import HTTPDigestAuth
 import logging
+from datetime import datetime
 def _check_status_code(r):
     return r.response.status_code == 401
 def _log(r):
@@ -17,6 +17,7 @@ def _log(r):
                       max_tries = 15
                       )
 def callback(current_user, primary_md, secondary_md, user):
+    time_format = '%Y-%m-%dT%H:%M:%S.%fZ%Z'
     url = current_app.config['METADATA_UPDATED_CALLBACK_URL']
     if not url:
         return
@@ -25,10 +26,14 @@ def callback(current_user, primary_md, secondary_md, user):
         disabled = user["disabled_at"] is not None and user["disabled_at"] > 0
     lastUpdated = []
     if primary_md is not None:
-        lastUpdated = [primary_md["uploaded_at"]]
+        lastUpdated = [datetime.utcfromtimestamp(primary_md["uploaded_at"]/1e9).strftime(time_format)]
     if secondary_md is not None:
-        lastUpdated.append(secondary_md["updated_at"])
-    webhook_result = requests.put(url=url, headers={"Authorization": f"Bearer {current_user.raw_token}"}, json={"lastUpdatedAt":lastUpdated, "disabled": disabled})
+        lastUpdated.append(datetime.utcfromtimestamp(secondary_md["uploaded_at"]/1e9).strftime(time_format))
+    webhook_result = requests.post(url=url, headers={
+        "Authorization": f"Bearer {current_user.raw_token}",
+        "X-Account-Metadata": current_user.metadata,
+        "X-API_Key": current_app.config["METADATA_UPDATED_SECRET"]
+    }, json={"lastUpdatedAt":lastUpdated, "disabled": disabled})
     try:
         webhook_result.raise_for_status()
     except requests.HTTPError as e:

@@ -23,6 +23,7 @@ def create_app():
         raise Exception("failed to init firebase auth: GOOGLE_APPLICATION_CREDENTIALS not set")
     app.config['GOOGLE_APPLICATION_CREDENTIALS'] = firebase_file_content
     app.config['METADATA_UPDATED_CALLBACK_URL'] = os.environ.get("METADATA_UPDATED_CALLBACK_URL")
+    app.config['METADATA_UPDATED_SECRET'] = os.environ.get("METADATA_UPDATED_SECRET")
     app.config['PRIMARY_PHOTO_ERROR_LIMIT'] = os.environ.get("PRIMARY_PHOTO_ERROR_LIMIT")
     init_rate_limiters(app)
     app.config['IMG_STORAGE_PATH'] = os.environ.get('IMG_STORAGE_PATH')
