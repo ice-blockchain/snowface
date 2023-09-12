@@ -281,34 +281,32 @@ def update_user(
 
     return insertedRows > 0
 
-def update_emotion_sequence_and_best_score(user_id: str, emotion_sequence: int, best_score: list):
+def update_emotion_sequence_and_best_score(usr, emotion_sequence: int, best_score: list):
     users = get_users_collection()
-    user = get_user(user_id)
     insertedRows = users.upsert([
-        [user_id],
-        [user['session_id']],
-        [user['emotions']],
-        [user['session_started_at']],
-        [user['disabled_at']],
-        [user['last_negative_request_at']],
+        [usr['user_id']],
+        [usr['session_id']],
+        [usr['emotions']],
+        [usr['session_started_at']],
+        [usr['disabled_at']],
+        [usr['last_negative_request_at']],
         [emotion_sequence],
         [best_score]
     ]).upsert_count
 
     return insertedRows > 0
 
-def update_last_negative_request_at(user_id: str, now: int):
+def update_last_negative_request_at(usr, now: int):
     users = get_users_collection()
-    user = get_user(user_id)
     insertedRows = users.upsert([
-        [user_id],
-        [user['session_id']],
-        [user['emotions']],
-        [user['session_started_at']],
-        [user['disabled_at']],
+        [usr['user_id']],
+        [usr['session_id']],
+        [usr['emotions']],
+        [usr['session_started_at']],
+        [usr['disabled_at']],
         [now],
-        [user['emotion_sequence']],
-        [user['best_pictures_score']]
+        [usr['emotion_sequence']],
+        [usr['best_pictures_score']]
     ]).upsert_count
 
     return insertedRows > 0

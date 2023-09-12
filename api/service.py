@@ -7,6 +7,7 @@ import shutil
 from os.path import exists
 from webhook import callback, UnauthorizedFromWebhook
 from flask import current_app
+import exceptions
 
 from milvus import (
     get_primary_metadata                   as _get_primary_metadata,
@@ -102,10 +103,10 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
     now = time.time_ns()
     user = _get_user(user_id)
     if user is not None and user["disabled_at"] > 0:
-        raise UserDisabled(f"User {user_id} was disabled at {user['disabled_at']}")
+        raise exceptions.UserDisabled(f"User {user_id} was disabled at {user['disabled_at']}")
     existing_md = _get_primary_metadata(user_id)
     if existing_md is not None:
-        raise MetadataAlreadyExists(f"User {user_id} already owns primary face uploaded at {existing_md['uploaded_at']}")
+        raise exceptions.MetadataAlreadyExists(f"User {user_id} already owns primary face uploaded at {existing_md['uploaded_at']}")
     img = loadImageFromStream(photo_stream)
     try:
         md = distance.l2_normalize(DeepFace.represent(
@@ -118,7 +119,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
             target_size=(1080,1080)
         )[0]["embedding"])
     except ValueError:
-        raise NoFaces("No faces detected")
+        raise exceptions.NoFaces("No faces detected")
     threshold = distance.findThreshold(_model,_similarity_metric)
     similar_users, distances = _find_similar_users(user_id,md, threshold)
     if similar_users[0] != user_id:
@@ -127,7 +128,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
         if secondary_md:
             bestIndex, euclidian = compare_metadatas([secondary_md["face_metadata"],md], threshold)
             if bestIndex != -1 and _disable_user(now, user_id):
-                raise UserDisabled(f"Face is matching with user {similar_users[0]}, distance {distances[0]} {euclidian} < {threshold}")
+                raise exceptions.UserDisabled(f"Face is matching with user {similar_users[0]}, distance {distances[0]} {euclidian} < {threshold}")
         else:
             # that similar user dont have 2nd pic yet,but we can re-check with fallback model
             simiar_user_picture = get_primary_photo(similar_users[0])
@@ -145,7 +146,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
                 disabled = _disable_user(now,user_id)
                 if disabled:
                     callback(current_user, None,None, {"disabled_at": now})
-                    raise UserDisabled(f"Face is matching with user {similar_users[0]}, distance {distances[0]} {res['distance']} < {res['threshold']}")
+                    raise exceptions.UserDisabled(f"Face is matching with user {similar_users[0]}, distance {distances[0]} {res['distance']} < {res['threshold']}")
     url = put_primary_photo(user_id,photo_stream.stream)
     upd, rows = _set_primary_metadata(now, user_id, md, url)
     if rows > 0:
@@ -162,7 +163,7 @@ def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_
     now = time.time_ns()
     user_reference_metadata = _get_primary_metadata(user_id)
     if user_reference_metadata is None:
-        raise MetadataNotFound(f"User {user_id} have no registered primary metadata yet")
+        raise exceptions.MetadataNotFound(f"User {user_id} have no registered primary metadata yet")
     md_vector = user_reference_metadata["face_metadata"]
     pics = [loadImageFromStream(p) for p in raw_pics]
     md, bestIndex, euclidian,threshold = extract_and_compare_metadatas(md_vector, pics,_model)
@@ -179,7 +180,7 @@ def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_
         )[0]["embedding"])
         mdFallback, bestIndex, euclidian,threshold = extract_and_compare_metadatas(md_vector, pics,_model_fallback)
         if bestIndex == -1:
-            raise NotSameUser(f"user mismatch: distance is greater than {threshold}: {euclidian}")
+            raise exceptions.NotSameUser(f"user mismatch: distance is greater than {threshold}: {euclidian}")
     url = put_secondary_photo(user_id,raw_pics[bestIndex].stream)
     prev_state = _get_secondary_metadata(user_id)
     upd, rows = _update_secondary_metadata(now,user_id,md[bestIndex], url)
@@ -211,7 +212,7 @@ def extract_and_compare_metadatas(user_reference_metadata: list, pics, model):
             )[0]["embedding"]) for p in pics
         ])
     except ValueError as e:
-        raise NoFaces("No faces detected")
+        raise exceptions.NoFaces("No faces detected")
     threshold = distance.findThreshold(model,_similarity_metric)
     bestIndex, euclidian = compare_metadatas(metadata_to_compare, threshold)
     return metadata_to_compare,bestIndex, euclidian, threshold
@@ -255,58 +256,6 @@ def get_status(user_id: str):
         "disabled": disabled is not None and disabled["disabled_at"] > 0
     }
 
-class MetadataNotFound(Exception):
-    def __init__(self, message):
-        super().__init__(message)
-
-class MetadataAlreadyExists(Exception):
-    def __init__(self, message):
-        super().__init__(message)
-
-class NotSameUser(Exception):
-    def __init__(self, message):
-        super().__init__(message)
-
-class UserDisabled(Exception):
-    def __init__(self, message):
-        super().__init__(message)
-
-class UserNotFound(Exception):
-    def __init__(self, message):
-        super().__init__(message)
-
-class NoFaces(Exception):
-    def __init__(self, message, e):
-        super(e).__init__(message)
-
-class UpsertException(Exception):
-    def __init__(self, message):
-        super().__init__(message)
-
-class SessionTimeOutException(Exception):
-    def __init__(self, message):
-        super().__init__(message)
-
-class NoDataException(Exception):
-    def __init__(self, message):
-        super().__init__(message)
-
-class WrongEmotionException(Exception):
-    def __init__(self, message):
-        super().__init__(message)
-
-class SessionNotFoundException(Exception):
-    def __init__(self, message):
-        super().__init__(message)
-
-class RateLimitException(Exception):
-    def __init__(self, message):
-        super().__init__(message)
-
-class WrongImageSizeException(Exception):
-    def __init__(self, message):
-        super().__init__(message)
-
 def _count_user_images(user_id):
     return len(glob.glob(f"{current_app.config['IMG_STORAGE_PATH']}{user_id}/*.jpg"))
 
@@ -349,15 +298,15 @@ def _get_unique_emotion(current_emotions_list: list):
     return choice.lower(), False
 
 def emotions(user_id):
-    now = int(time.time()*1e9)
+    now = time.time_ns()
     usr = _get_user(user_id)
 
     if usr is not None:
         if usr['disabled_at'] is not None and usr['disabled_at'] > 0:
-            raise UserDisabled(f"user:{usr['user_id']} disabled")
+            raise exceptions.UserDisabled(f"user:{usr['user_id']} disabled")
 
         if now - usr['session_started_at'] <= current_app.config['LIMIT_RATE']:
-            raise RateLimitException(f'rate limit exception for user_id:{user_id}')
+            raise exceptions.RateLimitException(f'rate limit exception for user_id:{user_id}')
 
         _remove_session(user_id)
         _remove_user_images(user_id)
@@ -379,26 +328,25 @@ def emotions(user_id):
         now=now
     )
     if res is False:
-        raise UpsertException(f"can't insert user:{user_id}")
+        raise exceptions.UpsertException(f"can't insert user:{user_id}")
 
     return emotions_list, session_id
 
-def _validate_session(usr, user_id, session_id):
+def _validate_session(usr, user_id, session_id, now):
     if usr is None:
-        raise SessionNotFoundException(f"user:{user_id} not found")
+        raise exceptions.SessionNotFoundException(f"user:{user_id} not found")
 
     if usr['disabled_at'] is not None and usr['disabled_at'] > 0:
-        raise UserDisabled(f"user:{usr['user_id']} disabled")
+        raise exceptions.UserDisabled(f"user:{usr['user_id']} disabled")
 
-    now = int(time.time()*1e9)
     if now - usr['last_negative_request_at'] <= current_app.config['LIMIT_RATE_NEGATIVE']:
-        raise RateLimitException(f"limit rate time didn't pass from the last negative request for user:{user_id}")
+        raise exceptions.RateLimitException(f"limit rate time didn't pass from the last negative request for user:{user_id}")
 
     if usr['session_id'] != session_id:
-        raise SessionNotFoundException(f"wrong session:{session_id} for user:{usr['user_id']}")
+        raise exceptions.SessionNotFoundException(f"wrong session:{session_id} for user:{usr['user_id']}")
 
     if now - usr['session_started_at'] >= current_app.config['SESSION_DURATION']:
-        raise SessionTimeOutException(f"session of user:{usr['user_id']} timed out")
+        raise exceptions.SessionTimeOutException(f"session of user:{usr['user_id']} timed out")
 
 def _generate_emotions(usr):
     emotions_list = usr['emotions'].split(',')
@@ -410,10 +358,10 @@ def _generate_emotions(usr):
     return emotions_list
 
 def add_additional_emotion(session_id, user_id):
-    now = int(time.time()*1e9)
+    now = time.time_ns()
     usr = _get_user(user_id)
 
-    _validate_session(usr=usr, user_id=user_id, session_id=session_id)
+    _validate_session(usr=usr, user_id=user_id, session_id=session_id, now=now)
 
     current_emotions_list = usr['emotions'].split(',')
     if usr['emotion_sequence'] != len(current_emotions_list) or len(current_emotions_list) >= current_app.config['MAX_EMOTION_COUNT']:
@@ -432,7 +380,7 @@ def add_additional_emotion(session_id, user_id):
         best_pictures_score=usr['best_pictures_score'],
         now=now
     ) is False:
-        raise UpsertException(f"can't update user:{user_id} by new emotion")
+        raise exceptions.UpsertException(f"can't update user:{user_id} by new emotion")
 
     return emotions_list, session_id
 
@@ -444,21 +392,21 @@ def _generate_best_scores(usr, scores, model, images_count):
     usr['best_pictures_score'][idx * _images_count_per_call:(idx+1)*_images_count_per_call] = neutral_scores
 
     if _update_emotion_sequence_and_best_score(
-        user_id=usr['user_id'],
+        usr=usr,
         emotion_sequence=usr['emotion_sequence']+1,
         best_score=usr["best_pictures_score"]
     ) is not True:
-        raise UpsertException(f"can't update emotion sequence and best score for user_id:{usr['user_id']}")
+        raise exceptions.UpsertException(f"can't update emotion sequence and best score for user_id:{usr['user_id']}")
 
-def _predict(user_id, session_id, model, images, now):
+def _predict(usr, model, images, now):
     face_img_list = []
     for img in images:
         loaded_image = loadImageFromStream(img)
         if loaded_image.shape[0] != model.img_size or loaded_image.shape[1] != model.img_size:
-            if _update_last_negative_request_at(user_id=user_id, now=now) is False:
-                raise UpsertException(f"update last negative request time failed for user:{user_id}")
+            if _update_last_negative_request_at(usr=usr, now=now) is False:
+                raise exceptions.UpsertException(f"update last negative request time failed for user:{usr['user_id']}")
 
-            raise WrongImageSizeException(f"wrong image size for user:{user_id}, session:{session_id}")
+            raise exceptions.WrongImageSizeException(f"wrong image size for user:{usr['user_id']}, session:{usr['session_id']}")
 
         face_img_list.append(loaded_image)
 
@@ -467,14 +415,12 @@ def _predict(user_id, session_id, model, images, now):
 
     return emotion, scores
 
-def _rollback_images_device_modulo_15(user_id: str):
+def _rollback_images_devide_modulo_15(user_id: str):
     images_count = _count_user_images(user_id)
     if images_count > _images_count_per_call:
         obsolete = images_count % _images_count_per_call
         if obsolete > 0:
             local_path = f"{current_app.config['IMG_STORAGE_PATH']}{user_id}/"
-            print('images_count - obsolete: ', images_count - obsolete)
-            print('images_count: ', images_count)
             for idx in range(images_count - obsolete, images_count):
                 os.remove(f"{local_path}{idx}.jpg")
     elif images_count > 0 and images_count < _images_count_per_call:
@@ -489,7 +435,7 @@ def _save_image(image, idx, user_id):
         image.seek(0)
         image.save(os.path.join(local_path, filename))
     except Exception as e:
-        _rollback_images_device_modulo_15(user_id)
+        _rollback_images_devide_modulo_15(user_id)
         raise e
 
 def _send_best_images(img_storage_path, base_similarity_endpoint, token, user_id, best_images_indexes):
@@ -534,44 +480,44 @@ def _finish_session(usr, token):
     _remove_session(user_id=usr['user_id'])
 
 def process_images(token: str, user_id: str, session_id: str, images:list):
-    now = int(time.time()*1e9)
+    now = time.time_ns()
     usr = _get_user(user_id)
 
-    _validate_session(usr=usr, user_id=user_id, session_id=session_id)
+    _validate_session(usr=usr, user_id=user_id, session_id=session_id, now=now)
 
     current_emotions_list = usr['emotions'].split(',')
     if usr['emotion_sequence'] >= len(current_emotions_list):
-        if _update_last_negative_request_at(user_id) is False:
-            raise UpsertException(f"update last negative request time failed for user:{user_id}")
+        if _update_last_negative_request_at(usr=usr, now=now) is False:
+            raise exceptions.UpsertException(f"update last negative request time failed for user:{user_id}")
 
         return False, False
 
     current_emotion = current_emotions_list[usr['emotion_sequence']]
     if len(current_emotions_list) >= current_app.config['MAX_EMOTION_COUNT']:
-        if _update_last_negative_request_at(user_id) is False:
-            raise UpsertException(f"update last negative request time failed for user:{user_id}")
+        if _update_last_negative_request_at(usr=usr, now=now) is False:
+            raise exceptions.UpsertException(f"update last negative request time failed for user:{user_id}")
 
         return False, True
 
     model = DeepFace.build_model("Emotion")
     emotion, scores = _predict(
-        user_id=user_id,
-        session_id=session_id,
+        usr=usr,
         model=model,
         images=images,
         now=now
     )
 
     if emotion != current_emotion:
+        usr['emotion_sequence'] = usr['emotion_sequence']+1
         if _update_emotion_sequence_and_best_score(
-            user_id=user_id,
-            emotion_sequence=usr['emotion_sequence']+1,
+            usr=usr,
+            emotion_sequence=usr['emotion_sequence'],
             best_score=usr['best_pictures_score']
         ) is False:
-            raise UpsertException(f"can\'t update emotion sequence for user_id:{user_id}")
+            raise exceptions.UpsertException(f"can't update emotion sequence for user_id:{user_id}")
 
-        if _update_last_negative_request_at(user_id=user_id, now=now) is False:
-            raise UpsertException(f"update last negative request time failed for user:{user_id}")
+        if _update_last_negative_request_at(usr=usr, now=now) is False:
+            raise exceptions.UpsertException(f"update last negative request time failed for user:{user_id}")
 
         return False, False
 

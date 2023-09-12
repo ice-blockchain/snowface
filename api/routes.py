@@ -1,5 +1,5 @@
 from flask import Blueprint, request
-import service, webhook
+import service, exceptions, webhook
 
 from auth import auth_required
 from limits.storage import MemoryStorage
@@ -133,13 +133,13 @@ def similar(current_user, user_id):
     try:
         bestIndex, euclidian, updateTime = service.check_similarity_and_update_secondary_photo(current_user, user_id, request.files.getlist("image"))
         return  {"userID":user_id, "bestIndex":bestIndex, "distance": euclidian, "secondaryPhotoUpdatedAt":updateTime}
-    except service.MetadataNotFound as e:
+    except exceptions.MetadataNotFound as e:
         logging.error(e)
         return {"message": str(e), "code":_no_primary_metadata}, 400
-    except service.NotSameUser as e:
+    except exceptions.NotSameUser as e:
         logging.error(e)
         return {"message": str(e), "code":_user_not_the_same}, 400
-    except service.NoFaces as e:
+    except exceptions.NoFaces as e:
         logging.error(e)
         return {"message": str(e), "code":_no_faces}, 400
     except webhook.UnauthorizedFromWebhook as e:
@@ -156,17 +156,17 @@ def primary_photo(current_user, user_id):
             return {"message": f"rate limit for errors {_primary_photo_rate_limiter_rate} exceeded", "code":_rate_limit_exceeded}, 429
         service.set_primary_photo(current_user, user_id, request.files["image"])
         return ""
-    except service.NoFaces as e:
+    except exceptions.NoFaces as e:
         logging.error(e)
         if _primary_photo_rate_limiter_rate is not None:
             _primary_photo_rate_limiter.hit(_primary_photo_rate_limiter_rate, "")
         return {"message": str(e), "code":_no_faces}, 400
-    except service.MetadataAlreadyExists as e:
+    except exceptions.MetadataAlreadyExists as e:
         logging.error(e)
         if _primary_photo_rate_limiter_rate is not None:
             _primary_photo_rate_limiter.hit(_primary_photo_rate_limiter_rate, "")
         return {"message": str(e), "code":_already_uploaded}, 409
-    except service.UserDisabled as e:
+    except exceptions.UserDisabled as e:
         logging.error(e)
         return {"message": str(e), "code":_user_disabled}, 403
     except webhook.UnauthorizedFromWebhook as e:
@@ -194,9 +194,9 @@ def emotions(current_user, user_id):
         emotions_list, session_id = service.emotions(user_id=user_id)
 
         return {'emotions': emotions_list, 'session_id': session_id}
-    except service.UserDisabled as e:
+    except exceptions.UserDisabled as e:
         return {'message': str(e), 'code': _user_disabled}, 403
-    except service.RateLimitException as e:
+    except exceptions.RateLimitException as e:
         return {'message': str(e), 'code': _rate_limit_exceeded}, 429
     except Exception as e:
         return {"message":"oops, an error occured"}, 500
@@ -208,15 +208,25 @@ def additional_emotion(current_user, user_id, session_id):
         emotions_list, session_id = service.add_additional_emotion(user_id=user_id, session_id=session_id)
 
         return {'emotions': emotions_list, 'sessionId': session_id}
-    except service.UserDisabled as e:
+    except exceptions.UserDisabled as e:
+        logging.error(e)
+
         return {'message': str(e), 'code': _user_disabled}, 403
-    except service.SessionTimeOutException as e:
+    except exceptions.SessionTimeOutException as e:
+        logging.error(e)
+
         return {'message': str(e), 'code': _session_timed_out}, 403
-    except service.SessionNotFoundException as e:
+    except exceptions.SessionNotFoundException as e:
+        logging.error(e)
+
         return {'message': str(e), 'code': _session_not_found}, 404
-    except service.RateLimitException as e:
+    except exceptions.RateLimitException as e:
+        logging.error(e)
+
         return {'message': str(e), 'code': _rate_limit_negative_exceeded}, 429
     except Exception as e:
+        logging.error(e, exc_info=e)
+
         return {"message":"oops, an error occured"}, 500
 
 @blueprint.route("/v1w/face-auth/liveness/<user_id>/<session_id>", methods=["POST"])
@@ -232,15 +242,27 @@ def liveness(current_user, user_id, session_id):
         result, session_ended = service.process_images(token=current_user.raw_token, user_id=user_id, session_id=session_id, images=images)
 
         return {'result': result, 'sessionEnded': session_ended}
-    except service.WrongImageSizeException as e:
+    except exceptions.WrongImageSizeException as e:
+        logging.error(e)
+
         return {'message': str(e), 'code': _invalid_properties}, 400
-    except service.UserDisabled as e:
+    except exceptions.UserDisabled as e:
+        logging.error(e)
+
         return {'message': str(e), 'code': _user_disabled}, 403
-    except service.SessionTimeOutException as e:
+    except exceptions.SessionTimeOutException as e:
+        logging.error(e)
+
         return {'message': str(e), 'code': _session_timed_out}, 403
-    except service.SessionNotFoundException as e:
+    except exceptions.SessionNotFoundException as e:
+        logging.error(e)
+
         return {'message': str(e), 'code': _session_not_found}, 404
-    except service.RateLimitException as e:
+    except exceptions.RateLimitException as e:
+        logging.error(e)
+
         return {'message': str(e), 'code': _rate_limit_negative_exceeded}, 429
     except Exception as e:
+        logging.error(e, exc_info=e)
+
         return {"message":"oops, an error occured"}, 500
