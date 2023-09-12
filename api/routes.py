@@ -19,6 +19,7 @@ _no_primary_metadata = "NO_PRIMARY_METADATA"
 _user_not_the_same = "USER_NOT_THE_SAME"
 _user_disabled = "USER_DISABLED"
 _already_uploaded = "ALREADY_UPLOADED"
+_allowed_extensions = {'jpg', 'jpeg'}
 
 _primary_photo_rate_limiter = MovingWindowRateLimiter(storage=MemoryStorage())
 _primary_photo_rate_limiter_rate = None
@@ -28,6 +29,11 @@ def init_rate_limiters(app):
         _primary_photo_rate_limiter_rate = parse(app.config['PRIMARY_PHOTO_ERROR_LIMIT'])
     else:
         _primary_photo_rate_limiter_rate = None
+
+def _allowed_file_format(filename):
+    print(filename)
+    return '.' in filename and \
+        filename.rsplit('.', 1)[1].lower() in _allowed_extensions
 
 @blueprint.route("/", methods = ["GET","POST"])
 def home():
@@ -130,6 +136,10 @@ def analyze():
 @blueprint.route("/v1w/face-auth/similarity/<user_id>", methods=["POST"])
 @auth_required
 def similar(current_user, user_id):
+    for img in request.files.getlist("image"):
+        if _allowed_file_format(img.filename) is False:
+            return {"message": "wrong image format", 'code': _invalid_properties}, 400
+
     try:
         bestIndex, euclidian, updateTime = service.check_similarity_and_update_secondary_photo(current_user, user_id, request.files.getlist("image"))
         return  {"userId":user_id, "bestIndex":bestIndex, "distance": euclidian, "secondaryPhotoUpdatedAt":updateTime}
@@ -151,6 +161,9 @@ def similar(current_user, user_id):
 @blueprint.route("/v1w/face-auth/primary_photo/<user_id>", methods=["POST"])
 @auth_required
 def primary_photo(current_user, user_id):
+    if _allowed_file_format(request.files["image"].filename) is False:
+        return {"message": "wrong image format", 'code': _invalid_properties}, 400
+
     try:
         if _primary_photo_rate_limiter_rate is not None and not _primary_photo_rate_limiter.test(_primary_photo_rate_limiter_rate, ""): # global, should it be per user_id?
             return {"message": f"rate limit for errors {_primary_photo_rate_limiter_rate} exceeded", "code":_rate_limit_exceeded}, 429
@@ -237,6 +250,9 @@ def liveness(current_user, user_id, session_id):
         return {"message": "you must pass images input", 'code': _invalid_properties}, 400
     if len(images) != 15:
         return {"message": "wrong number of images", 'code': _invalid_properties}, 400
+    for img in images:
+        if _allowed_file_format(img.filename) is False:
+            return {"message": "wrong image format", 'code': _invalid_properties}, 400
 
     try:
         result, session_ended = service.process_images(token=current_user.raw_token, user_id=user_id, session_id=session_id, images=images)
