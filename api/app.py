@@ -14,6 +14,8 @@ def create_app():
     app.register_blueprint(blueprint)
     jwt_secret = os.environ.get('JWT_SECRET')
     app.config['JWT_SECRET'] = jwt_secret
+    if not app.config['JWT_SECRET']:
+        raise Exception("JWT_SECRET not set")
     fp = os.environ.get("AUTH_CREDENTIALS_FILE_PATH")
     if fp:
         firebase_file_content = open(fp,'r').read()

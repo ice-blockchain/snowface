@@ -19,8 +19,8 @@ class UserNotFound(Exception):
         super().__init__(message)
 
 class NoFaces(Exception):
-    def __init__(self, message, e):
-        super(e).__init__(message)
+    def __init__(self, message):
+        super().__init__(message)
 
 class UpsertException(Exception):
     def __init__(self, message):
