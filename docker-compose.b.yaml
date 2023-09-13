@@ -42,9 +42,9 @@ services:
     environment:
       ETCD_ENDPOINTS: localhost:2379
       MINIO_ADDRESS: localhost:9000
-      MINIO_ACCESSKEYID: minioadmin
-      MINIO_SECRETACCESSKEY: minioadmin
-      SECURITY_AUTHORIZATIONENABLED: "true"
+      MINIO_ACCESSKEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      COMMON_SECURITY_AUTHORIZATION_ENABLED: "true"
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-..}/snowface-volumes/milvus:/var/lib/milvus
      # - ./milvus.yaml:/milvus/configs/milvus.yaml
@@ -86,7 +86,8 @@ services:
       METADATA_UPDATED_CALLBACK_URL: http://localhost:5000 #webhook to freezer-refrigerant endpoint, if emptty / not set = no webhook called
       METADATA_UPDATED_SECRET: secret # secret token matching with freezer-refrigerant
       PRIMARY_PHOTO_ERROR_LIMIT: 10/minute # if empty/not set = no limit
-      WORKERS: 4 # workers count in gunicorn (=support of concurrent requests at the same time)
+      MAX_UPLOAD_CONTENT_LENGTH: 16000000 #16Mb
+      WORKERS: 4 # workers count in gunicorn (=support of concurrent requests at the same time), it works better with 4cpu cores / worker or 2300Mb of videomem / worker
     volumes:
       - ../weights/:/root/.deepface/weights/
     depends_on:
