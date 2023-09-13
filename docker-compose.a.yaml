@@ -5,10 +5,8 @@ services:
     image: nginx
     volumes:
       - ../snowface-extra/nginx/nginx.conf:/tmp/nginx.conf # path to local nginx conf.
-      - ../snowface-extra/certs/server_a_crt_file.crt:/certs/server_a_crt_file.crt # path to local serverA crt.
-      - ../snowface-extra/certs/server_a_crt_file.key:/certs/server_a_crt_file.key # path to local serverA key.
-      - ../snowface-extra/certs/server_b_crt_file.crt:/certs/server_b_crt_file.crt # path to local serverB crt.
-      - ../snowface-extra/certs/server_b_crt_file.key:/certs/server_b_crt_file.key # path to local serverB crt.
+      - ../snowface-extra/certs/server_crt_file.crt:/certs/server_crt_file.crt # path to local crt.
+      - ../snowface-extra/certs/server_crt_file.key:/certs/server_crt_file.key # path to local key.
     environment:
       - SERVER_A_ADDR=snowface:5000 # change to real server A ip.
       - SERVER_B_ADDR=snowface_b:5000 # change to real server B ip.
