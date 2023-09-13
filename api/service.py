@@ -96,7 +96,7 @@ def init_models():
         img = loadImageFromStream(io.BytesIO(samplePerson.content))
         DeepFace.represent(img_path=img, detector_backend=_detector_high_quality, model_name=_model)
         DeepFace.represent(img_path=img, detector_backend=_detector_high_quality, model_name=_model_fallback)
-        emotion.predict(img)
+        emotion.predict_multi_emotions(face_img_list=[img])
 
 
 def set_primary_photo(current_user, user_id: str, photo_stream):

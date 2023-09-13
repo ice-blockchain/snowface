@@ -1,5 +1,5 @@
 #base image
-FROM python:3.8
+FROM onnxruntime-cuda
 LABEL org.opencontainers.image.source https://github.com/serengil/deepface
 # -----------------------------------
 # create required folder
@@ -12,27 +12,40 @@ COPY ./api/*.py /app/
 COPY ./requirements.txt /app/
 COPY ./setup.py /app/
 COPY ./README.md /app/
+#openCV with GPU
+#COPY ./opencv_contrib_python_rolling-4.6.0.20221102-cp36-abi3-linux_x86_64.whl /app/
 # -----------------------------------
 # switch to application directory
 WORKDIR /app
 # -----------------------------------
 # update image os
 RUN apt-get update
-RUN apt-get install ffmpeg libsm6 libxext6 -y
+RUN apt-get install ffmpeg libsm6 libxext6 libnvidia-decode-525 libnvidia-encode-525 -y
+
+# one of
+RUN pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host=files.pythonhosted.org opencv-python>=4.5.5.64
+# or
+#ENV ENABLE_CONTRIB=1
+#ENV ENABLE_ROLLING=1
+#RUN export CMAKE_ARGS="-DWITH_CUDA=ON -DCUDA_FAST_MATH=ON -DWITH_CUBLAS=ON -DCUDA_ARCH_PTX=8.6 -DWITH_NVCUVID=ON -DWITH_NVCUVENC=ON" && export ENABLE_CONTRIB=1 && export ENABLE_ROLLING=1 && pip install /app/opencv_contrib_python_rolling-4.6.0.20221102-cp36-abi3-linux_x86_64.whl
 # -----------------------------------
 # if you will use gpu, then you should install tensorflow-gpu package
-RUN pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host=files.pythonhosted.org onnxruntime
+#RUN pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host=files.pythonhosted.org nvidia-cudnn-cu11==8.6.0.163
+RUN pip --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host=files.pythonhosted.org install onnxruntime-gpu
 # -----------------------------------
 # install deepface from pypi release (might be out-of-the-date)
 # RUN pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host=files.pythonhosted.org deepface
 # -----------------------------------
 # install deepface from source code (always up-to-date)
 RUN pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host=files.pythonhosted.org -e .
+
+
 # -----------------------------------
 # some packages are optional in deepface. activate if your task depends on one.
-# RUN pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host=files.pythonhosted.org cmake==3.24.1.1
-# RUN pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host=files.pythonhosted.org dlib==19.20.0
-# RUN pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host=files.pythonhosted.org lightgbm==2.3.1
+RUN pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host=files.pythonhosted.org mediapipe
+#RUN pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host=files.pythonhosted.org dlib==19.20.0
+#RUN pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host=files.pythonhosted.org lightgbm==2.3.1
+#RUN pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host=files.pythonhosted.org opencv-contrib-python>=4.3.0.36
 # -----------------------------------
 # environment variables
 ENV PYTHONUNBUFFERED=1

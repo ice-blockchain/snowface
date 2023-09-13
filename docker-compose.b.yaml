@@ -58,7 +58,7 @@ services:
     depends_on:
       - "etcd"
       - "minio"
-  snowface:
+  snowface-recognition:
     image: snowface-recognition
     build:
       context: ${SNOWFACE_PATH:-.}
