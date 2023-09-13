@@ -4,7 +4,7 @@ from flask import g
 import os
 from pymilvus import CollectionSchema, FieldSchema, DataType, utility, connections, Collection, Milvus
 import numpy as np
-
+from flask import current_app
 _conn_prefix = "default"
 _faces_collection = None
 _users_collection = None
@@ -12,15 +12,17 @@ _users_collection = None
 _picture_primary = 0
 _picture_secondary = 1
 
+def connect_milvus():
+    connections.connect(
+        alias=_conn_prefix,
+        user=current_app.config["MILVUS_USER"],
+        password=current_app.config["MILVUS_PASSWORD"],
+        uri=current_app.config['MILVUS_URI']
+    )
 
 def init_milvus():
     if not connections.has_connection(_conn_prefix):
-        connections.connect(
-            alias=_conn_prefix,
-            user=os.getenv("MILVUS_USER","root"),
-            password=os.getenv("MILVUS_PASSWORD","Milvus"),
-            uri=os.getenv("MILVUS_URI", "http://localhost:19530")
-        )
+        connect_milvus()
     init_schema()
 def close_milvus():
     connections.disconnect(alias="default")
@@ -122,12 +124,7 @@ def create_faces_collection(name):
 def get_faces_collection():
     global _faces_collection
     if not connections.has_connection(_conn_prefix):
-        connections.connect(
-            alias=_conn_prefix,
-            user=os.getenv("MILVUS_USER","root"),
-            password=os.getenv("MILVUS_PASSWORD","Milvus"),
-            uri=os.getenv("MILVUS_URI", "http://localhost:19530")
-        )
+        connect_milvus()
     if _faces_collection is None:
         _faces_collection = init_collection("faces", create_faces_collection)
 
@@ -136,12 +133,7 @@ def get_faces_collection():
 def get_users_collection():
     global _users_collection
     if not connections.has_connection(_conn_prefix):
-        connections.connect(
-            alias=_conn_prefix,
-            user=os.getenv("MILVUS_USER","root"),
-            password=os.getenv("MILVUS_PASSWORD","Milvus"),
-            uri=os.getenv("MILVUS_URI", "http://localhost:19530")
-        )
+        connect_milvus()
     if _users_collection is None:
         _users_collection = init_collection("users", create_users_collection)
 

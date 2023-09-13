@@ -23,6 +23,15 @@ def create_app():
         firebase_file_content = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
     if not firebase_file_content:
         raise Exception("failed to init firebase auth: GOOGLE_APPLICATION_CREDENTIALS not set")
+    app.config['MILVUS_URI'] = os.environ.get('MILVUS_URI')
+    app.config['MILVUS_USER'] = os.environ.get('MILVUS_USER', 'root')
+    app.config['MILVUS_PASSWORD'] = os.environ.get('MILVUS_PASSWORD', 'Milvus')
+
+    app.config['MINIO_URI'] = os.environ.get('MINIO_URI')
+    app.config['MINIO_ACCESS_KEY'] = os.environ.get('MINIO_ACCESS_KEY','minioadmin')
+    app.config['MINIO_SECRET_KEY'] = os.environ.get('MINIO_SECRET_KEY','minioadmin')
+    app.config['MINIO_SSL'] = os.environ.get("MINIO_SSL", 'False').lower() in ('true', '1')
+
     app.config['GOOGLE_APPLICATION_CREDENTIALS'] = firebase_file_content
     app.config['METADATA_UPDATED_CALLBACK_URL'] = os.environ.get("METADATA_UPDATED_CALLBACK_URL")
     app.config['METADATA_UPDATED_SECRET'] = os.environ.get("METADATA_UPDATED_SECRET")

@@ -116,7 +116,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
             detector_backend=_detector_high_quality,
             align=True,
             normalization="base",
-            target_size=(1080,1080)
+            target_size=(640,640)
         )[0]["embedding"])
     except ValueError:
         raise exceptions.NoFaces("No faces detected")

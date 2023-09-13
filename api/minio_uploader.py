@@ -3,6 +3,7 @@ import os
 from minio import Minio
 from minio.error import S3Error
 import io, datetime
+from flask import current_app
 
 _minio_client = None
 
@@ -15,11 +16,11 @@ _picture_secondary = 1
 def _get_minio_client():
     global _minio_client
     if _minio_client is None:
-        ssl = os.getenv("MINIO_SSL", 'False').lower() in ('true', '1')
+        ssl = current_app.config["MINIO_SSL"]
         _minio_client = Minio(
-            os.getenv("MINIO_HOST","localhost:9000"),
-            access_key=os.getenv("MINIO_ACCESS_KEY", "minioadmin"),
-            secret_key=os.getenv("MINIO_SECRET_KEY", "minioadmin"),
+            current_app.config["MINIO_URI"],
+            access_key=current_app.config["MINIO_ACCESS_KEY"],
+            secret_key=current_app.config["MINIO_SECRET_KEY"],
             secure=ssl
         )
     return _minio_client
