@@ -1,0 +1,55 @@
+version: '3.5'
+
+services:
+  nginx:
+    image: nginx
+    volumes:
+      - ../snowface-extra/nginx/nginx.conf:/tmp/nginx.conf # path to local nginx conf.
+      - ../snowface-extra/server_a_crt_file.crt:/certs/server_a_crt_file.crt # path to local serverA crt.
+      - ../snowface-extra/server_a_crt_file.key:/certs/server_a_crt_file.key # path to local serverA key.
+      - ../snowface-extra/server_b_crt_file.crt:/certs/server_b_crt_file.crt # path to local serverB crt.
+      - ../snowface-extra/server_b_crt_file.key:/certs/server_b_crt_file.key # path to local serverB crt.
+    environment:
+      - SERVER_A_ADDR=snowface:5000 # change to real server A ip.
+      - SERVER_B_ADDR=snowface_b:5000 # change to real server B ip.
+    command: /bin/bash -c "envsubst < /tmp/nginx.conf > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
+    ports:
+      - 443:443
+      - 444:444
+
+  snowface:
+    image: snowface-recognition
+    build:
+      context: ${SNOWFACE_PATH:-.}
+      dockerfile: Dockerfile
+    container_name: snowface-recognition
+    environment:
+      # auth
+      JWT_SECRET: bogus # required, must be the same value as on other backend apps
+      GOOGLE_APPLICATION_CREDENTIALS: "{}" # to work with firebase tokens, must be the same value as on other backend apps
+      GCP_FIREBASE_AUTH_API_KEY: bogus # to work with firebase tokens, must be the same value as on other backend apps
+      # minio connection setup
+      MINIO_URI: localhost:9000 # required, change to IP at the server B.
+      MINIO_ACCESS_KEY: minioadmin # must match with minio container
+      MINIO_SECRET_KEY: minioadmin # must match with minio container
+      # to enable TLS in minio pass --certs-dir in minio's cmd and put private.key and public.crt there:
+      #  https://min.io/docs/minio/linux/operations/network-encryption.html#minio-tls
+      MINIO_SSL: "false"
+      # Milvus connection setup
+      # to enable TLS change here to https and cnange security.tlsMode to 1 into milvus.yaml
+      MILVUS_URI: http://localhost:19530 #required, change to IP at the server B.
+      MILVUS_USER: root #default = root
+      # to change run milvus and change it from client https://github.com/milvus-io/milvus/discussions/22736
+      # like docker run python:3.8 bash -c "pip3 install pymilvus; python3 -c \"from pymilvus import utility; from pymilvus import connections; connections.connect(host='http://localhost',port='19530',user='root',password='Milvus');utility.reset_password('root', 'Milvus', 'new_password')\""
+      MILVUS_PASSWORD: Milvus # default = Milvus
+      WORKERS: 4 # workers count in gunicorn (=support of concurrent requests at the same time)
+      LIMIT_RATE: 60 # seconds, staging value
+      LIMIT_RATE_NEGATIVE: 1 # second, staging value
+      BASE_SIMILARITY_ENDPOINT: http://127.0.0.1:5000/v1w/face-auth/similarity/ # change to server B endpoint address with /v1w/face-auth/similarity/ suffix.
+      TOTAL_BEST_PICTURES: 7
+      MAX_EMOTION_COUNT: 10
+      MAX_CONTENT_LENGTH: 1000000 # 1 Mb
+      IMG_STORAGE_PATH: /images # Change to the path where images will be stored.
+    volumes:
+      - ../weights/:/root/.deepface/weights/
+    network_mode: "host"
