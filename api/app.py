@@ -47,16 +47,15 @@ def create_app():
     app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_UPLOAD_CONTENT_LENGTH', 16 * 1000 * 1000))
 
     with app.app_context():
-        is_gunicorn = "gunicorn" in os.environ.get("SERVER_SOFTWARE", "")
-        if not is_gunicorn:
-            when_ready("mock")
+        when_ready(app)
 
     return app
 
-def when_ready(arbiter):
+def when_ready(app):
     init_milvus()
     _get_firebase_client()
-    _client_with_initialized_bucket()
+    if app.config['MINIO_URI']:
+        _client_with_initialized_bucket()
     init_models()
 def on_exit(arbiter):
     close_milvus()

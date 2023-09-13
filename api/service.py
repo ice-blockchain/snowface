@@ -1,5 +1,6 @@
 import uuid
 import glob
+import logging
 import os
 import random
 import time
@@ -89,14 +90,17 @@ def init_models():
     DeepFace.build_model(_model)
     DeepFace.build_model(_model_fallback)
     emotion = DeepFace.build_model("Emotion")
-    samplePerson = requests.get(
-        url="https://thispersondoesnotexist.com/", verify=False
-    )
-    if samplePerson.status_code == 200:
-        img = loadImageFromStream(io.BytesIO(samplePerson.content))
-        DeepFace.represent(img_path=img, detector_backend=_detector_high_quality, model_name=_model)
-        DeepFace.represent(img_path=img, detector_backend=_detector_high_quality, model_name=_model_fallback)
-        emotion.predict_multi_emotions(face_img_list=[img])
+    try:
+        samplePerson = requests.get(
+            url="https://thispersondoesnotexist.com/", verify=False
+        )
+        if samplePerson.status_code == 200:
+            img = loadImageFromStream(io.BytesIO(samplePerson.content))
+            DeepFace.represent(img_path=img, detector_backend=_detector_high_quality, model_name=_model)
+            DeepFace.represent(img_path=img, detector_backend=_detector_high_quality, model_name=_model_fallback)
+            emotion.predict_multi_emotions(face_img_list=[img])
+    except requests.RequestException as e:
+        logging.error(e, exc_info=e)
 
 
 def set_primary_photo(current_user, user_id: str, photo_stream):

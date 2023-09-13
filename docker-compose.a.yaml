@@ -21,7 +21,7 @@ services:
       #dockerfile: Dockerfile.gpu
     container_name: snowface-liveness
     environment:
-      SNOWFACE_PORT: 5001
+      SNOWFACE_PORT: 5001 # temporary hack to run both containers on same machine, not needed for staging / prod
       # auth
       JWT_SECRET: bogus # required, must be the same value as on other backend apps
       GOOGLE_APPLICATION_CREDENTIALS: "{}" # to work with firebase tokens, must be the same value as on other backend apps
@@ -33,7 +33,7 @@ services:
       # to change run milvus and change it from client https://github.com/milvus-io/milvus/discussions/22736
       # like docker run python:3.8 bash -c "pip3 install pymilvus; python3 -c \"from pymilvus import utility; from pymilvus import connections; connections.connect(host='http://localhost',port='19530',user='root',password='Milvus');utility.reset_password('root', 'Milvus', 'new_password')\""
       MILVUS_PASSWORD: Milvus # default = Milvus
-      WORKERS: 1 # workers count in gunicorn (=support of concurrent requests at the same time)
+      WORKERS: 4 # workers count in gunicorn (=support of concurrent requests at the same time) = vcpu/4, or (videomem/2300 - 2)
       LIMIT_RATE: 60 # seconds, staging value
       LIMIT_RATE_NEGATIVE: 1 # second, staging value
       BASE_SIMILARITY_ENDPOINT: http://127.0.0.1:5000/v1w/face-auth/similarity/ # change to server B endpoint address with /v1w/face-auth/similarity/ suffix.
