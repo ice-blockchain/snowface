@@ -88,8 +88,6 @@ services:
       PRIMARY_PHOTO_ERROR_LIMIT: 10/minute # if empty/not set = no limit
       MAX_UPLOAD_CONTENT_LENGTH: 16000000 #16Mb
       WORKERS: 4 # workers count in gunicorn (=support of concurrent requests at the same time), it works better with 4cpu cores / worker or 2300Mb of videomem / worker
-    volumes:
-      - ../weights/:/root/.deepface/weights/
     depends_on:
       - "milvus-standalone"
       - "minio"
