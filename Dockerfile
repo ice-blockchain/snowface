@@ -21,7 +21,7 @@ WORKDIR /root/.deepface/weights/
 RUN wget https://github.com/HSE-asavchenko/face-emotion-recognition/raw/main/models/affectnet_emotions/onnx/enet_b0_8_best_vgaf.onnx && \
     wget https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx && \
     wget https://github.com/serengil/deepface_models/releases/download/v1.0/arcface_weights.h5 && \
-    wget https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx && \
+    wget https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx
 # -----------------------------------
 # switch to application directory
 WORKDIR /app
