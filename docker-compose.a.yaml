@@ -18,10 +18,11 @@ services:
     build:
       context: ${SNOWFACE_PATH:-.}
       dockerfile: Dockerfile
+      args:
+        SNOWFACE_PORT: 5001 # temporary hack to run both containers on same machine, not needed for staging / prod
       #dockerfile: Dockerfile.gpu
     container_name: snowface-liveness
     environment:
-      SNOWFACE_PORT: 5001 # temporary hack to run both containers on same machine, not needed for staging / prod
       # auth
       JWT_SECRET: bogus # required, must be the same value as on other backend apps
       GOOGLE_APPLICATION_CREDENTIALS: "{}" # to work with firebase tokens, must be the same value as on other backend apps
