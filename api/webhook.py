@@ -32,8 +32,8 @@ def callback(current_user, primary_md, secondary_md, user):
     webhook_result = requests.post(url=url, headers={
         "Authorization": f"Bearer {current_user.raw_token}",
         "X-Account-Metadata": current_user.metadata,
-        "X-API_Key": current_app.config["METADATA_UPDATED_SECRET"]
-    }, json={"lastUpdatedAt":lastUpdated, "disabled": disabled}, verify=False)
+        "X-API-Key": current_app.config["METADATA_UPDATED_SECRET"]
+    }, json={"lastUpdatedAt":lastUpdated, "disabled": disabled})
     try:
         webhook_result.raise_for_status()
     except requests.HTTPError as e:

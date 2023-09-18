@@ -132,6 +132,12 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
         if secondary_md:
             bestIndex, euclidian = compare_metadatas([secondary_md["face_metadata"],md], threshold)
             if bestIndex != -1 and _disable_user(now, user_id):
+                callback(
+                    current_user=current_user,
+                    primary_md=None,
+                    secondary_md=None,
+                    user={"disabled_at": now}
+                )
                 raise exceptions.UserDisabled(f"Face is matching with user {similar_users[0]}, distance {distances[0]} {euclidian} < {threshold}")
         else:
             # that similar user dont have 2nd pic yet,but we can re-check with fallback model
@@ -149,13 +155,23 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
             if res["verified"]:
                 disabled = _disable_user(now,user_id)
                 if disabled:
-                    callback(current_user, None,None, {"disabled_at": now})
+                    callback(
+                        current_user=current_user,
+                        primary_md=None,
+                        secondary_md=None,
+                        user={"disabled_at": now}
+                    )
                     raise exceptions.UserDisabled(f"Face is matching with user {similar_users[0]}, distance {distances[0]} {res['distance']} < {res['threshold']}")
     url = put_primary_photo(user_id,photo_stream.stream)
     upd, rows = _set_primary_metadata(now, user_id, md, url)
     if rows > 0:
         try:
-            callback(current_user, upd,None,user)
+            callback(
+                current_user=current_user,
+                primary_md=upd,
+                secondary_md=None,
+                user=user
+            )
         except UnauthorizedFromWebhook as e:
             _delete_metadata(upd["user_picture_id"])
             raise e
