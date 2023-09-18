@@ -12,3 +12,11 @@ retina-face>=0.0.1
 fire>=0.4.0
 gunicorn>=20.1.0
 Deprecated>=1.2.13
+pymilvus==2.3.0
+pyjwt
+firebase-admin
+python-dotenv
+minio
+backoff==2.2.1
+limits==3.6.0
+onnx

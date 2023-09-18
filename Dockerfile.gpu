@@ -1,0 +1,85 @@
+################## ONNX patched Dockerfile #######################
+
+# --------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------
+# Dockerfile to run ONNXRuntime with CUDA, CUDNN integration
+
+# nVidia cuda 11.4 Base Image
+FROM nvcr.io/nvidia/cuda:11.8.0-cudnn8-devel-ubuntu22.04
+ENV	    DEBIAN_FRONTEND=noninteractive
+MAINTAINER Changming Sun "chasun@microsoft.com"
+
+ENV PATH /usr/local/nvidia/bin:/usr/local/cuda/bin:${PATH}
+ENV NV_CUDNN_PACKAGE=libcudnn8-dev=8.6.0.163-1+cuda11.8
+RUN apt-get update && apt-get install -y --no-install-recommends wget && wget https://developer.download.nvidia.com/compute/redist/cudnn/v8.6.0/local_installers/11.8/cudnn-local-repo-ubuntu2204-8.6.0.163_1.0-1_amd64.deb -O /cudnn-local-repo-ubuntu2204-8.6.0.163_1.0-1_amd64.deb
+RUN apt-mark unhold ${NV_CUDNN_PACKAGE_NAME} && apt-get purge -y libcudnn8-dev libcudnn8  && dpkg -i /cudnn-local-repo-ubuntu2204-8.6.0.163_1.0-1_amd64.deb  && cp /var/cudnn-local-repo-*/cudnn-local-*-keyring.gpg /usr/share/keyrings/ && apt-get update && apt-get install -y --no-install-recommends libcudnn8=8.6.0.163-1+cuda11.8  ${NV_CUDNN_PACKAGE} && apt-mark hold libcudnn8-dev=8.6.0.163-1+cuda11.8 ${NV_CUDNN_PACKAGE_NAME}
+RUN apt-get update && apt-get install -y --no-install-recommends python3-dev ca-certificates g++ python3-numpy gcc make git python3-setuptools python3-wheel python3-packaging python3-pip aria2 && aria2c -q -d /tmp -o cmake-3.26.3-linux-x86_64.tar.gz https://github.com/Kitware/CMake/releases/download/v3.26.3/cmake-3.26.3-linux-x86_64.tar.gz && tar -zxf /tmp/cmake-3.26.3-linux-x86_64.tar.gz --strip=1 -C /usr
+ADD ./onnxruntime /code
+RUN cd /code && /bin/bash ./build.sh --skip_onnx_tests --skip_tests --allow_running_as_root --skip_submodule_sync --cuda_home /usr/local/cuda --cudnn_home /usr/lib/x86_64-linux-gnu/ --use_cuda --config Release --build_wheel --update --build --parallel --cmake_extra_defines ONNXRUNTIME_VERSION=$(cat ./VERSION_NUMBER) 'CMAKE_CUDA_ARCHITECTURES=52;60;61;70;75;86'
+
+FROM nvcr.io/nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
+ENV	    DEBIAN_FRONTEND=noninteractive
+
+COPY --from=0 /cudnn-local-repo-ubuntu2204-8.6.0.163_1.0-1_amd64.deb /
+COPY --from=0 /code/build/Linux/Release/dist /root
+COPY --from=0 /code/dockerfiles/LICENSE-IMAGE.txt /code/LICENSE-IMAGE.txt
+ENV DEBIAN_FRONTEND=noninteractive
+ENV NV_CUDNN_PACKAGE=libcudnn8=8.6.0.163-1+cuda11.8
+RUN apt-mark unhold ${NV_CUDNN_PACKAGE_NAME} && apt-get purge -y libcudnn8 && dpkg -i /cudnn-local-repo-ubuntu2204-8.6.0.163_1.0-1_amd64.deb  && cp /var/cudnn-local-repo-*/cudnn-local-*-keyring.gpg /usr/share/keyrings/ && apt-get update && apt-get install -y --no-install-recommends ${NV_CUDNN_PACKAGE} && apt-mark hold ${NV_CUDNN_PACKAGE_NAME}
+RUN apt-get update && apt-get install -y --no-install-recommends libstdc++6 ca-certificates python3-setuptools python3-wheel python3-pip unattended-upgrades && unattended-upgrade && python3 -m pip install /root/*.whl && rm -rf /root/*.whl
+
+################## ^ ONNX patched Dockerfile ^ #######################
+LABEL org.opencontainers.image.source https://github.com/serengil/deepface
+# -----------------------------------
+# create required folder
+RUN mkdir /app
+RUN mkdir -p /app/deepface && mkdir -p root/.deepface/weights/
+# -----------------------------------
+# Copy required files from repo into image
+COPY ./deepface /app/deepface
+COPY ./api/*.py /app/
+COPY ./requirements.txt /app/
+COPY ./setup.py /app/
+COPY ./README.md /app/
+#openCV with GPU
+#COPY ./opencv_contrib_python_rolling-4.6.0.20221102-cp36-abi3-linux_x86_64.whl /app/
+
+# -----------------------------------
+# update image os
+RUN apt-get update
+RUN apt-get install ffmpeg libsm6 libxext6 wget libnvidia-decode-525 libnvidia-encode-525 -y
+
+WORKDIR /root/.deepface/weights/
+RUN wget https://github.com/HSE-asavchenko/face-emotion-recognition/raw/main/models/affectnet_emotions/onnx/enet_b0_8_best_vgaf.onnx && \
+    wget https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx && \
+    wget https://github.com/serengil/deepface_models/releases/download/v1.0/arcface_weights.h5 && \
+    wget https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx
+# -----------------------------------
+# switch to application directory
+WORKDIR /app
+
+# one of
+RUN pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host=files.pythonhosted.org opencv-python>=4.5.5.64
+# or
+#ENV ENABLE_CONTRIB=1
+#ENV ENABLE_ROLLING=1
+#RUN export CMAKE_ARGS="-DWITH_CUDA=ON -DCUDA_FAST_MATH=ON -DWITH_CUBLAS=ON -DCUDA_ARCH_PTX=8.6 -DWITH_NVCUVID=ON -DWITH_NVCUVENC=ON" && export ENABLE_CONTRIB=1 && export ENABLE_ROLLING=1 && pip install /app/opencv_contrib_python_rolling-4.6.0.20221102-cp36-abi3-linux_x86_64.whl
+# -----------------------------------
+# if you will use gpu, then you should install tensorflow-gpu package
+RUN pip --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host=files.pythonhosted.org install onnxruntime-gpu #nvidia-cudnn-cu11==8.6.0.163
+# -----------------------------------
+# install deepface from source code (always up-to-date)
+RUN pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host=files.pythonhosted.org -e .
+
+# -----------------------------------
+# environment variables
+ENV TF_FORCE_GPU_ALLOW_GROWTH=true
+ENV PYTHONUNBUFFERED=1
+ARG WORKERS=4
+ARG SNOWFACE_PORT=5000
+# -----------------------------------
+# run the app (re-configure port if necessary)
+EXPOSE $SNOWFACE_PORT
+CMD ["sh","-c","gunicorn --workers=$WORKERS --timeout=3600 --bind=0.0.0.0:$SNOWFACE_PORT 'app:create_app()'"]

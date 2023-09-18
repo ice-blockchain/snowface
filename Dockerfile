@@ -1,29 +1,34 @@
 #base image
-FROM python:3.8
+FROM python:3.10
 LABEL org.opencontainers.image.source https://github.com/serengil/deepface
 # -----------------------------------
 # create required folder
-RUN mkdir /app
-RUN mkdir /app/deepface
+RUN mkdir -p /app/deepface && mkdir -p root/.deepface/weights/
 # -----------------------------------
 # Copy required files from repo into image
 COPY ./deepface /app/deepface
-COPY ./api/app.py /app/
-COPY ./api/routes.py /app/
-COPY ./api/service.py /app/
+COPY ./api/*.py /app/
 COPY ./requirements.txt /app/
 COPY ./setup.py /app/
 COPY ./README.md /app/
-# -----------------------------------
-# switch to application directory
-WORKDIR /app
+
 # -----------------------------------
 # update image os
 RUN apt-get update
-RUN apt-get install ffmpeg libsm6 libxext6 -y
+RUN apt-get install ffmpeg libsm6 libxext6 wget -y
+
+WORKDIR /root/.deepface/weights/
+RUN wget https://github.com/HSE-asavchenko/face-emotion-recognition/raw/main/models/affectnet_emotions/onnx/enet_b0_8_best_vgaf.onnx && \
+    wget https://github.com/opencv/opencv_zoo/raw/main/models/face_recognition_sface/face_recognition_sface_2021dec.onnx && \
+    wget https://github.com/serengil/deepface_models/releases/download/v1.0/arcface_weights.h5 && \
+    wget https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx
+# -----------------------------------
+# switch to application directory
+WORKDIR /app
+
 # -----------------------------------
 # if you will use gpu, then you should install tensorflow-gpu package
-# RUN pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host=files.pythonhosted.org tensorflow-gpu
+RUN pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host=files.pythonhosted.org onnxruntime
 # -----------------------------------
 # install deepface from pypi release (might be out-of-the-date)
 # RUN pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host=files.pythonhosted.org deepface
@@ -38,7 +43,9 @@ RUN pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted
 # -----------------------------------
 # environment variables
 ENV PYTHONUNBUFFERED=1
+ARG WORKERS=4
+ARG SNOWFACE_PORT=5000
 # -----------------------------------
 # run the app (re-configure port if necessary)
-EXPOSE 5000
-CMD ["gunicorn", "--workers=1", "--timeout=3600", "--bind=0.0.0.0:5000", "app:create_app()"]
+EXPOSE $SNOWFACE_PORT
+CMD ["sh","-c","gunicorn --workers=$WORKERS --timeout=3600 --bind=0.0.0.0:$SNOWFACE_PORT 'app:create_app()'"]
