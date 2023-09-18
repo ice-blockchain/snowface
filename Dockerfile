@@ -45,6 +45,8 @@ RUN pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted
 ENV PYTHONUNBUFFERED=1
 ARG WORKERS=4
 ARG SNOWFACE_PORT=5000
+ENV WORKERS=${WORKERS}
+ENV SNOWFACE_PORT=${SNOWFACE_PORT}
 # -----------------------------------
 # run the app (re-configure port if necessary)
 EXPOSE $SNOWFACE_PORT
