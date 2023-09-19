@@ -11,4 +11,5 @@ tests/dataset/*.pkl
 tests/sandbox.ipynb
 *.pyc
 .env
+.firebase-auth.json
 volumes/**

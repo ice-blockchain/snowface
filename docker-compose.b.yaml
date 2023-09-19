@@ -66,11 +66,12 @@ services:
       args:
         WORKERS: 4 # workers count in gunicorn (=support of concurrent requests at the same time), it works better with 4cpu cores / worker or 2300Mb of videomem / worker
     container_name: snowface-recognition
+    volumes:
+      - $PWD/.firebase-auth.json:/.firebase-auth.json
     environment:
       # auth
       JWT_SECRET: bogus # required, must be the same value as on other backend apps
-      GOOGLE_APPLICATION_CREDENTIALS: '{}' # to work with firebase tokens, must be the same value as on other backend apps
-      GCP_FIREBASE_AUTH_API_KEY: bogus   # to work with firebase tokens, must be the same value as on other backend apps
+      AUTH_CREDENTIALS_FILE_PATH: /.firebase-auth.json # to work with firebase tokens, must be the same value as on other backend apps
       # minio connection setup
       MINIO_URI: localhost:9000 # required
       MINIO_ACCESS_KEY: minioadmin # must match with minio container
