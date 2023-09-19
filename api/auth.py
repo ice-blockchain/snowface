@@ -7,7 +7,7 @@ from firebase_admin import auth, initialize_app, credentials
 
 
 _issuer_ice = "ice.io/access"
-_issuer_ice_metadata = "ice.io/access"
+_issuer_ice_metadata = "ice.io/metadata"
 _registered_with = "registeredWithProvider"
 _ice_id = "iceId"
 _firebase_id = "firebaseId"
@@ -83,7 +83,7 @@ def _parse_firebase(token):
         token,
         jwt_data["uid"],
         jwt_data["email"],
-        jwt_data["role"],
+        jwt_data.get("role",""),
         "firebase"
     )
 
@@ -99,21 +99,21 @@ def _modify_with_metadata(user, mdToken):
     if not mdToken:
         return user
     user_id = user.user_id
-    metadata = jwt.decode(mdToken, current_app.config["JWT_TOKEN"], algorithms=["HS256"])
+    metadata = jwt.decode(mdToken, current_app.config["JWT_SECRET"], algorithms=["HS256"])
     if metadata["iss"] != _issuer_ice_metadata:
         raise jwt.InvalidIssuerError(f'{metadata["iss"]} must be {_issuer_ice_metadata}')
     sub_match = metadata["sub"] != "" and user_id == metadata["sub"]
-    fb_match = metadata[_firebase_id] != "" and user_id == metadata[_firebase_id]
-    ice_match = metadata[_ice_id] != "" and user_id == metadata[_ice_id]
+    fb_match = metadata.get(_firebase_id,"") != "" and user_id == metadata.get(_firebase_id,"")
+    ice_match = metadata.get(_ice_id,"") != "" and user_id == metadata.get(_ice_id,"")
     if user_id and not (sub_match or fb_match or ice_match):
         raise jwt.InvalidTokenError(f"token {user_id} does not own metadata {metadata}")
 
     md_user_id = ""
-    registeredWithProvider = metadata[_registered_with]
+    registeredWithProvider = metadata.get(_registered_with,"")
     if registeredWithProvider == "firebase":
-        md_user_id = metadata[_ice_id]
+        md_user_id = metadata.get(_ice_id,"")
     elif registeredWithProvider == "ice":
-        md_user_id = metadata[_firebase_id]
+        md_user_id = metadata.get(_firebase_id,"")
     if md_user_id:
         user.user_id = md_user_id
         user.metadata = mdToken
