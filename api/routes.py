@@ -190,7 +190,7 @@ def primary_photo(current_user, user_id):
             _primary_photo_rate_limiter.hit(_primary_photo_rate_limiter_rate, "")
         return {"message":"oops, an error occured"}, 500
 
-@blueprint.route("/status/<user_id>", methods=["GET"])
+@blueprint.route("/v1r/face-auth/status/<user_id>", methods=["GET"])
 @auth_required
 def user_status(current_user, user_id):
     try:

@@ -11,6 +11,7 @@ services:
       - SERVER_A_ADDR=localhost:5001 # change to real server A ip.
       - SERVER_B_ADDR=localhost:5000 # change to real server B ip.
       - WEBHOOK_ADDR=https://localhost:1443/v1w/auth/processFaceRecognitionResult # change to real server B ip.
+      - WEBHOOK_ALLOW_SRC=all
     command: /bin/bash -c "envsubst < /tmp/nginx.conf > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"
     network_mode: "host"
 
@@ -24,11 +25,12 @@ services:
         WORKERS: 4 # workers count in gunicorn (=support of concurrent requests at the same time) = vcpu/4, or (videomem/2300 - 2)
       #dockerfile: Dockerfile.gpu
     container_name: snowface-liveness
+    volumes:
+      - $PWD/.firebase-auth.json:/.firebase-auth.json
     environment:
       # auth
       JWT_SECRET: bogus # required, must be the same value as on other backend apps
-      GOOGLE_APPLICATION_CREDENTIALS: '{}' # to work with firebase tokens, must be the same value as on other backend apps
-      GCP_FIREBASE_AUTH_API_KEY: bogus # to work with firebase tokens, must be the same value as on other backend apps
+      AUTH_CREDENTIALS_FILE_PATH: /.firebase-auth.json # to work with firebase tokens, must be the same value as on other backend apps or GOOGLE_APPLICATION_CREDENTIALS
       # Milvus connection setup
       # to enable TLS change here to https and cnange security.tlsMode to 1 into milvus.yaml
       MILVUS_URI: http://localhost:19530 #required, change to IP at the server B.
