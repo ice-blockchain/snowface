@@ -6,6 +6,7 @@ import random
 import time
 import shutil
 from os.path import exists
+from datetime import datetime
 from webhook import callback, UnauthorizedFromWebhook
 from flask import current_app
 import exceptions
@@ -40,10 +41,12 @@ _model_fallback = "ArcFace"#"Facenet" #"VGG-Face"
 _detector_high_quality = "yunet"
 _detector_low_quality = "yunet" # TODO: test with skip, if we gonna get proper photos from FE
 _similarity_metric = "euclidean_l2"
+_picture_extension = '.jpg'
 _max_executor_workers = 2
 _default_emotions_num = 3
 _images_count_per_call = 15
 _min_images_with_emotions_to_proceed = 1
+_time_format = '%Y-%m-%dT%H:%M:%S.%fZ%Z'
 _default_emotions_list = DeepFace.build_model("Emotion").idx_to_class
 
 def represent(img_path, model_name, detector_backend, enforce_detection, align):
@@ -277,14 +280,14 @@ def get_status(user_id: str):
     }
 
 def _count_user_images(user_id):
-    return len(glob.glob(f"{current_app.config['IMG_STORAGE_PATH']}{user_id}/*.jpg"))
+    return len(glob.glob(f"{current_app.config['IMG_STORAGE_PATH']}{user_id}/*{_picture_extension}"))
 
 def _remove_user_images(user_id):
     dirname = f"{current_app.config['IMG_STORAGE_PATH']}{user_id}"
     if os.path.isdir(dirname) == False:
         return
 
-    for filename in glob.glob(f"{dirname}/*.jpg"):
+    for filename in glob.glob(f"{dirname}/*{_picture_extension}"):
         os.remove(filename)
 
     if _count_user_images(user_id) == 0:
@@ -296,7 +299,7 @@ def _remove_not_best_user_images(img_storage_path, user_id, best_images_indexes)
     if os.path.isdir(dirname) == False:
         return False
 
-    all_images = glob.glob(f"{dirname}/*.jpg")
+    all_images = glob.glob(f"{dirname}/*{_picture_extension}")
     for full_name in all_images:
         filename = full_name[full_name.rfind('/')+1:]
         parts = filename.split('.')
@@ -325,8 +328,9 @@ def emotions(user_id):
         if usr['disabled_at'] is not None and usr['disabled_at'] > 0:
             raise exceptions.UserDisabled(f"user:{usr['user_id']} disabled")
 
-        if now - usr['session_started_at'] <= current_app.config['LIMIT_RATE']:
-            raise exceptions.RateLimitException(f'rate limit exception for user_id:{user_id}')
+        secondary = _get_secondary_metadata(user_id)
+        if secondary is not None and secondary['uploaded_at'] is not None and now - secondary['uploaded_at'] <= current_app.config['LIMIT_RATE']:
+            raise exceptions.RateLimitException(f"rate limit exception for user_id:{user_id}, already passed the liveness at {secondary['uploaded_at']}")
 
         _remove_session(user_id)
         _remove_user_images(user_id)
@@ -350,7 +354,7 @@ def emotions(user_id):
     if res is False:
         raise exceptions.UpsertException(f"can't insert user:{user_id}")
 
-    return emotions_list, session_id
+    return emotions_list, session_id, datetime.utcfromtimestamp((now + current_app.config['SESSION_DURATION'])/1e9).strftime(_time_format)
 
 def _validate_session(usr, user_id, session_id, now):
     if usr is None:
@@ -384,12 +388,11 @@ def add_additional_emotion(session_id, user_id):
     _validate_session(usr=usr, user_id=user_id, session_id=session_id, now=now)
 
     current_emotions_list = usr['emotions'].split(',')
-    if usr['emotion_sequence'] != len(current_emotions_list) or len(current_emotions_list) >= current_app.config['MAX_EMOTION_COUNT']:
+    emotion_sequence = usr['emotion_sequence']
+    if emotion_sequence != len(current_emotions_list) or len(current_emotions_list) >= current_app.config['MAX_EMOTION_COUNT']:
         return current_emotions_list, session_id
 
-    emotion_sequence = usr['emotion_sequence']
     emotions_list = _generate_emotions(usr)
-
     if _update_user(
         user_id=user_id,
         session_id=session_id,
@@ -442,7 +445,7 @@ def _rollback_images_devide_modulo_15(user_id: str):
         if obsolete > 0:
             local_path = f"{current_app.config['IMG_STORAGE_PATH']}{user_id}/"
             for idx in range(images_count - obsolete, images_count):
-                os.remove(f"{local_path}{idx}.jpg")
+                os.remove(f"{local_path}{idx}{_picture_extension}")
     elif images_count > 0 and images_count < _images_count_per_call:
         _remove_user_images(user_id)
 
@@ -451,7 +454,7 @@ def _save_image(image, idx, user_id):
         local_path = f"{current_app.config['IMG_STORAGE_PATH']}{user_id}/"
         if not os.path.exists(local_path):
             os.makedirs(local_path)
-        filename = f'{idx}.jpg'
+        filename = f'{idx}{_picture_extension}'
         image.seek(0)
         image.save(os.path.join(local_path, filename))
     except Exception as e:
@@ -461,8 +464,8 @@ def _save_image(image, idx, user_id):
 def _send_best_images(img_storage_path, base_similarity_endpoint, token, user_id, best_images_indexes):
     files = []
     for img_idx in best_images_indexes:
-        file_path = f"{img_storage_path}{user_id}/{img_idx}.jpg"
-        files.append(('image', (f"{img_idx}.jpg", open(file_path, 'rb'), 'image/jpeg')))
+        file_path = f"{img_storage_path}{user_id}/{img_idx}{_picture_extension}"
+        files.append(('image', (f"{img_idx}{_picture_extension}", open(file_path, 'rb'), 'image/jpeg')))
 
     response = requests.post(
         url=f"{base_similarity_endpoint}{user_id}",
