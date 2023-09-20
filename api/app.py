@@ -38,6 +38,12 @@ def create_app():
     app.config['PRIMARY_PHOTO_ERROR_LIMIT'] = os.environ.get("PRIMARY_PHOTO_ERROR_LIMIT")
     init_rate_limiters(app)
     app.config['IMG_STORAGE_PATH'] = os.environ.get('IMG_STORAGE_PATH')
+    if not app.config['IMG_STORAGE_PATH']:
+        raise Exception("IMG_STORAGE_PATH was not set")
+
+    if app.config['IMG_STORAGE_PATH'].endswith('/') is False:
+        app.config['IMG_STORAGE_PATH'] = app.config['IMG_STORAGE_PATH'] + '/'
+
     app.config['SESSION_DURATION'] = int(os.environ.get('SESSION_DURATION', 600)) * int(1e9)
     app.config['LIMIT_RATE'] = int(os.environ.get('LIMIT_RATE', 60)) * int(1e9)
     app.config['LIMIT_RATE_NEGATIVE'] = int(os.environ.get('LIMIT_RATE_NEGATIVE', 1)) * int(1e9)

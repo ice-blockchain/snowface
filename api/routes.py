@@ -165,19 +165,19 @@ def primary_photo(current_user, user_id):
         return {"message": "wrong image format", 'code': _invalid_properties}, 400
 
     try:
-        if _primary_photo_rate_limiter_rate is not None and not _primary_photo_rate_limiter.test(_primary_photo_rate_limiter_rate, ""): # global, should it be per user_id?
+        if _primary_photo_rate_limiter_rate is not None and not _primary_photo_rate_limiter.test(_primary_photo_rate_limiter_rate, user_id): # global, should it be per user_id?
             return {"message": f"rate limit for errors {_primary_photo_rate_limiter_rate} exceeded", "code":_rate_limit_exceeded}, 429
         service.set_primary_photo(current_user, user_id, request.files["image"])
         return ""
     except exceptions.NoFaces as e:
         logging.error(e)
         if _primary_photo_rate_limiter_rate is not None:
-            _primary_photo_rate_limiter.hit(_primary_photo_rate_limiter_rate, "")
+            _primary_photo_rate_limiter.hit(_primary_photo_rate_limiter_rate, user_id)
         return {"message": str(e), "code":_no_faces}, 400
     except exceptions.MetadataAlreadyExists as e:
         logging.error(e)
         if _primary_photo_rate_limiter_rate is not None:
-            _primary_photo_rate_limiter.hit(_primary_photo_rate_limiter_rate, "")
+            _primary_photo_rate_limiter.hit(_primary_photo_rate_limiter_rate, user_id)
         return {"message": str(e), "code":_already_uploaded}, 409
     except exceptions.UserDisabled as e:
         logging.error(e)
@@ -187,7 +187,7 @@ def primary_photo(current_user, user_id):
     except Exception as e:
         logging.error(e, exc_info=e)
         if _primary_photo_rate_limiter_rate is not None:
-            _primary_photo_rate_limiter.hit(_primary_photo_rate_limiter_rate, "")
+            _primary_photo_rate_limiter.hit(_primary_photo_rate_limiter_rate, user_id)
         return {"message":"oops, an error occured"}, 500
 
 @blueprint.route("/v1r/face-auth/status/<user_id>", methods=["GET"])
@@ -204,14 +204,20 @@ def user_status(current_user, user_id):
 @auth_required
 def emotions(current_user, user_id):
     try:
-        emotions_list, session_id = service.emotions(user_id=user_id)
+        emotions_list, session_id, session_expired_at = service.emotions(user_id=user_id)
 
-        return {'emotions': emotions_list, 'session_id': session_id}
+        return {'emotions': emotions_list, 'sessionId': session_id, 'sessionExpiredAt': session_expired_at}
     except exceptions.UserDisabled as e:
+        logging.error(e)
+
         return {'message': str(e), 'code': _user_disabled}, 403
     except exceptions.RateLimitException as e:
+        logging.error(e)
+
         return {'message': str(e), 'code': _rate_limit_exceeded}, 429
     except Exception as e:
+        logging.error(e)
+
         return {"message":"oops, an error occured"}, 500
 
 @blueprint.route("/v1w/face-auth/emotions/<user_id>/<session_id>", methods=["PUT"])
