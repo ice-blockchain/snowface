@@ -2,7 +2,7 @@ import time
 
 from flask import g
 import os
-from pymilvus import CollectionSchema, FieldSchema, DataType, utility, connections, Collection, Milvus
+from pymilvus import CollectionSchema, FieldSchema, DataType, utility, connections, Collection, Milvus, MilvusException
 import numpy as np
 from flask import current_app
 _conn_prefix = "default"
@@ -37,7 +37,11 @@ def init_collection(name, create_fn):
         db.load()
     else:
         db = Collection(name=name)
-        db.load()
+        try: db.load()
+        except MilvusException as e:
+            if e.code == 5:
+                db.release()
+                db.load()
     return db
 
 def init_schema():

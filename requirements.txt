@@ -20,3 +20,5 @@ minio
 backoff==2.2.1
 limits==3.6.0
 onnx==1.14.1
+prometheus-client==0.17.1
+flask_httpauth

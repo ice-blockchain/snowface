@@ -90,6 +90,7 @@ services:
       METADATA_UPDATED_SECRET: bogus-secret # secret token matching with freezer-refrigerant
       PRIMARY_PHOTO_ERROR_LIMIT: 10/minute # if empty/not set = no limit
       MAX_UPLOAD_CONTENT_LENGTH: 16000000 #16M
+      METRICS_PASSWORD: metrics-password
     depends_on:
       - "milvus-standalone"
       - "minio"

@@ -13,6 +13,8 @@ import os
 
 def create_app():
     app = Flask(__name__)
+    try: os.mkdir(os.environ.get("PROMETHEUS_MULTIPROC_DIR","./"))
+    except: pass
     app.register_blueprint(blueprint)
     app.config['LOGGING_LEVEL'] = os.environ.get('LOGGING_LEVEL','INFO')
     logging.basicConfig(level=app.config['LOGGING_LEVEL'])
@@ -57,8 +59,10 @@ def create_app():
     app.config['IMG_STORAGE_PATH'] = os.environ.get('IMG_STORAGE_PATH')
     if (not app.config['IMG_STORAGE_PATH']) and app.config['SIMILARITY_SERVER']:
         raise Exception("IMG_STORAGE_PATH was not set")
-    if app.config['SIMILARITY_SERVER'] and app.config['IMG_STORAGE_PATH'].endswith('/') is False:
+    if app.config['IMG_STORAGE_PATH'] and app.config['IMG_STORAGE_PATH'].endswith('/') is False:
         app.config['IMG_STORAGE_PATH'] = app.config['IMG_STORAGE_PATH'] + '/'
+    app.config['METRICS_USER'] = os.environ.get('METRICS_USER','metrics')
+    app.config['METRICS_PASSWORD'] = os.environ.get('METRICS_PASSWORD')
     with app.app_context():
         when_ready(app)
 

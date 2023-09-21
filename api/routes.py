@@ -1,4 +1,4 @@
-from flask import Blueprint, request, current_app
+from flask import Blueprint, request, current_app, Response
 import service, exceptions, webhook
 
 from auth import auth_required, Token
@@ -7,6 +7,11 @@ from limits.strategies import MovingWindowRateLimiter
 from limits import parse
 from webhook import UnauthorizedFromWebhook
 import logging
+
+from prometheus_client import CONTENT_TYPE_LATEST
+from metrics import latest
+from flask_httpauth import HTTPBasicAuth
+
 blueprint = Blueprint("routes", __name__)
 
 _session_not_found = "SESSION_NOT_FOUND"
@@ -280,3 +285,15 @@ def liveness(current_user, user_id, session_id):
         logging.error(e, exc_info=e)
 
         return {"message":"oops, an error occured"}, 500
+
+metricsauth = HTTPBasicAuth()
+@metricsauth.verify_password
+def verify_password(username, password):
+    return username == current_app.config["METRICS_USER"] and password == current_app.config['METRICS_PASSWORD']
+@blueprint.route("/metrics")
+@metricsauth.login_required
+def metrics():
+    if current_app.config['METRICS_PASSWORD'] == "":
+        return "metrics disabled", 403
+    data = latest()
+    return Response(data, mimetype=CONTENT_TYPE_LATEST)

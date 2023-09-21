@@ -35,6 +35,7 @@ from concurrent.futures import ThreadPoolExecutor, wait
 from deepface import DeepFace
 from deepface.commons import distance
 from minio_uploader import put_secondary_photo, put_primary_photo, get_primary_photo, delete_photos as _delete_photos
+import metrics
 import numpy as np
 
 _model = "SFace"
@@ -543,6 +544,7 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
     relative_score = awaited_score*100.0/max_score
     logging.info(f"[U:{user_id}][S:{session_id}] awaited {current_emotion}/{awaited_score} it is {relative_score} of ({max_emotion}/{max_score}=100)  < {current_app.config['TARGET_EMOTION_SCORE']} all:{averages}")
     if relative_score < current_app.config['TARGET_EMOTION_SCORE']:
+        metrics.register_emotion_failure(model,current_emotion,scores, averages)
         usr['emotion_sequence'] = usr['emotion_sequence']+1
         session_ended = usr['emotion_sequence'] >= current_app.config['MAX_EMOTION_COUNT']
         if session_ended:
@@ -560,6 +562,7 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
             raise exceptions.UpsertException(f"can't update emotion sequence for user_id:{user_id}")
         return False, session_ended, usr['emotions']
 
+    metrics.register_emotion_success(model,current_emotion,scores, averages)
     images_count = _count_user_images(user_id)
     for idx, img in enumerate(images):
         _save_image(
@@ -579,6 +582,7 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
     )
 
     if session_success:
+        metrics.register_session_length(usr['emotion_sequence']+1)
         _finish_session(usr, token)
 
         return True, True, emotions
