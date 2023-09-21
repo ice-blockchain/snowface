@@ -45,6 +45,9 @@ class SessionNotFoundException(Exception):
 class RateLimitException(Exception):
     def __init__(self, message):
         super().__init__(message)
+class NegativeRateLimitException(Exception):
+    def __init__(self, message):
+        super().__init__(message)
 
 class WrongImageSizeException(Exception):
     def __init__(self, message):

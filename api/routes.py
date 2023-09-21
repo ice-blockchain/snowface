@@ -186,8 +186,7 @@ def primary_photo(current_user, user_id):
         return str(e), 401
     except Exception as e:
         logging.error(e, exc_info=e)
-        if _primary_photo_rate_limiter_rate is not None:
-            _primary_photo_rate_limiter.hit(_primary_photo_rate_limiter_rate, user_id)
+
         return {"message":"oops, an error occured"}, 500
 
 @blueprint.route("/v1r/face-auth/status/<user_id>", methods=["GET"])
@@ -215,6 +214,10 @@ def emotions(current_user, user_id):
         logging.error(e)
 
         return {'message': str(e), 'code': _rate_limit_exceeded}, 429
+    except exceptions.NegativeRateLimitException as e:
+        logging.error(e)
+
+        return {'message': str(e), 'code': _rate_limit_negative_exceeded}, 429
     except Exception as e:
         logging.error(e)
 
@@ -239,10 +242,6 @@ def additional_emotion(current_user, user_id, session_id):
         logging.error(e)
 
         return {'message': str(e), 'code': _session_not_found}, 404
-    except exceptions.RateLimitException as e:
-        logging.error(e)
-
-        return {'message': str(e), 'code': _rate_limit_negative_exceeded}, 429
     except Exception as e:
         logging.error(e, exc_info=e)
 
@@ -280,7 +279,7 @@ def liveness(current_user, user_id, session_id):
         logging.error(e)
 
         return {'message': str(e), 'code': _session_not_found}, 404
-    except exceptions.RateLimitException as e:
+    except exceptions.NegativeRateLimitException as e:
         logging.error(e)
 
         return {'message': str(e), 'code': _rate_limit_negative_exceeded}, 429

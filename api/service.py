@@ -327,6 +327,8 @@ def emotions(user_id):
     if usr is not None:
         if usr['disabled_at'] is not None and usr['disabled_at'] > 0:
             raise exceptions.UserDisabled(f"user:{usr['user_id']} disabled")
+        if usr['last_negative_request_at'] > 0 and now - usr['last_negative_request_at'] <= current_app.config['LIMIT_RATE_NEGATIVE']:
+            raise exceptions.NegativeRateLimitException(f"limit rate time didn't pass from the last negative try for user:{user_id} time: {usr['last_negative_request_at']}")
 
         secondary = _get_secondary_metadata(user_id)
         if secondary is not None and secondary['uploaded_at'] is not None and now - secondary['uploaded_at'] <= current_app.config['LIMIT_RATE']:
@@ -362,9 +364,6 @@ def _validate_session(usr, user_id, session_id, now):
 
     if usr['disabled_at'] is not None and usr['disabled_at'] > 0:
         raise exceptions.UserDisabled(f"user:{usr['user_id']} disabled")
-
-    if now - usr['last_negative_request_at'] <= current_app.config['LIMIT_RATE_NEGATIVE']:
-        raise exceptions.RateLimitException(f"limit rate time didn't pass from the last negative request for user:{user_id}")
 
     if usr['session_id'] != session_id:
         raise exceptions.SessionNotFoundException(f"wrong session:{session_id} for user:{usr['user_id']}")
@@ -426,9 +425,6 @@ def _predict(usr, model, images, now):
     for img in images:
         loaded_image = loadImageFromStream(img)
         if loaded_image.shape[0] != model.img_size or loaded_image.shape[1] != model.img_size:
-            if _update_last_negative_request_at(usr=usr, now=now) is False:
-                raise exceptions.UpsertException(f"update last negative request time failed for user:{usr['user_id']}")
-
             raise exceptions.WrongImageSizeException(f"wrong image size for user:{usr['user_id']}, session:{usr['session_id']}")
 
         face_img_list.append(loaded_image)
@@ -508,15 +504,15 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
 
     _validate_session(usr=usr, user_id=user_id, session_id=session_id, now=now)
 
+    if usr['last_negative_request_at'] > 0 and now - usr['last_negative_request_at'] <= current_app.config['LIMIT_RATE_NEGATIVE']:
+        raise exceptions.NegativeRateLimitException(f"limit rate time didn't pass from the last negative try for user:{user_id} time: {usr['last_negative_request_at']}")
+
     current_emotions_list = usr['emotions'].split(',')
     if usr['emotion_sequence'] >= len(current_emotions_list):
-        if _update_last_negative_request_at(usr=usr, now=now) is False:
-            raise exceptions.UpsertException(f"update last negative request time failed for user:{user_id}")
-
         return False, False
 
     current_emotion = current_emotions_list[usr['emotion_sequence']]
-    if len(current_emotions_list) >= current_app.config['MAX_EMOTION_COUNT']:
+    if usr['emotion_sequence'] >= current_app.config['MAX_EMOTION_COUNT']:
         if _update_last_negative_request_at(usr=usr, now=now) is False:
             raise exceptions.UpsertException(f"update last negative request time failed for user:{user_id}")
 
@@ -538,11 +534,11 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
             best_score=usr['best_pictures_score']
         ) is False:
             raise exceptions.UpsertException(f"can't update emotion sequence for user_id:{user_id}")
-
-        if _update_last_negative_request_at(usr=usr, now=now) is False:
-            raise exceptions.UpsertException(f"update last negative request time failed for user:{user_id}")
-
-        return False, False
+        session_ended = usr['emotion_sequence'] >= current_app.config['MAX_EMOTION_COUNT']
+        if session_ended:
+            if _update_last_negative_request_at(usr=usr, now=now) is False:
+                raise exceptions.UpsertException(f"update last negative request time failed for user:{user_id}")
+        return False, session_ended
 
     images_count = _count_user_images(user_id)
     for idx, img in enumerate(images):
