@@ -76,7 +76,6 @@ class HSEmotionRecognizer:
     def predict_multi_emotions(self, face_img_list, logits=True):
         imgs = [self.preprocess(face_img) for face_img in face_img_list]
         imgs = np.concatenate(imgs, axis=0)
-        t = time.time()
         scores=self.ort_session.run(None, {"input": imgs})[0]
         if self.is_mtl:
             preds=np.argmax(scores[:,:-2], axis=1)

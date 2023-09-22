@@ -17,7 +17,7 @@ from milvus import (
     update_secondary_metadata              as _update_secondary_metadata,
     find_similar_users                     as _find_similar_users,
     set_primary_metadata                   as _set_primary_metadata,
-    delete_metadata                        as _delete_metadata,
+    delete_metadatas                        as _delete_metadatas,
     update_user                            as _update_user,
     disable_user                           as _disable_user,
     get_user                               as _get_user,
@@ -34,7 +34,7 @@ from deepface.commons import functions, distance
 from concurrent.futures import ThreadPoolExecutor, wait
 from deepface import DeepFace
 from deepface.commons import distance
-from minio_uploader import put_secondary_photo, put_primary_photo, get_primary_photo
+from minio_uploader import put_secondary_photo, put_primary_photo, get_primary_photo, delete_photos as _delete_photos
 import numpy as np
 
 _model = "SFace"
@@ -155,7 +155,6 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
                 normalization="base",
                 align=True
             )
-            print(res['distance'],res['threshold'])
             if res["verified"]:
                 disabled = _disable_user(now,user_id)
                 if disabled:
@@ -178,10 +177,10 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
                 user=user
             )
         except UnauthorizedFromWebhook as e:
-            _delete_metadata(upd["user_picture_id"])
+            _delete_metadatas([upd["user_picture_id"]])
             raise e
         except requests.RequestException as e:
-            _delete_metadata(upd["user_picture_id"])
+            _delete_metadatas([upd["user_picture_id"]])
             raise e # goes to 5xx
 
 def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_pics: list):
@@ -572,3 +571,12 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
         return True, True, emotions
 
     return True, session_ended, emotions
+
+
+def delete_user_photos_and_metadata(user_id:str):
+    _remove_session(user_id)
+    errs = _delete_photos(user_id)
+    if len(errs) > 0:
+        raise Exception(str(errs))
+    if _delete_metadatas([f"{user_id}~0", f"{user_id}~1"]) == 0:
+        raise exceptions.MetadataNotFound(f"face metadata for userId {user_id} was not deleted")

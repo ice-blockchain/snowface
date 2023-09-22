@@ -2,6 +2,7 @@ import os
 
 from minio import Minio
 from minio.error import S3Error
+from minio.deleteobjects import DeleteObject
 import io, datetime
 from flask import current_app
 
@@ -62,3 +63,11 @@ def get_photo(user_id: str, photo_id: int):
     res.close()
     res.release_conn()
     return data
+
+def delete_photos(user_id):
+    client = _client_with_initialized_bucket()
+    main_photo_obj_name = DeleteObject(f"{user_id}/{_picture_primary}")
+    secondary_photo_obj_name = DeleteObject(f"{user_id}/{_picture_secondary}")
+    folder_obj_name = DeleteObject(f"{user_id}")
+    errs = client.remove_objects(_bucket_name,[main_photo_obj_name, secondary_photo_obj_name, folder_obj_name])
+    return list(errs)

@@ -188,6 +188,20 @@ def primary_photo(current_user, user_id):
 
         return {"message":"oops, an error occured"}, 500
 
+@blueprint.route("/v1w/face-auth/primary_photo/<user_id>", methods=["DELETE"])
+def delete_photos(user_id):
+    api_header = request.headers.get("X-API-Key","")
+    if api_header != current_app.config['METADATA_UPDATED_SECRET']:
+        return {"message":"not allowed: X-API-Key mismatch", "code":"OPERATION_NOT_ALLOWED"},403
+    try:
+        service.delete_user_photos_and_metadata(user_id)
+        return "", 200
+    except exceptions.MetadataNotFound as e:
+        logging.error(e)
+        return {"message": str(e), "code":_no_primary_metadata}, 404
+    except Exception as e:
+        logging.error(e, exc_info=e)
+        return {"message":"oops, an error occured"}, 500
 @blueprint.route("/v1r/face-auth/status/<user_id>", methods=["GET"])
 @auth_required
 def user_status(current_user, user_id):

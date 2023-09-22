@@ -224,10 +224,9 @@ def set_primary_metadata(now: int, user_id:str, metadata: list, url: str):
         "url": url,
         "uploaded_at": now
     }, insertedRows
-
-def delete_metadata(pk:str):
+def delete_metadatas(pk: list):
     faces = get_faces_collection()
-    faces.delete(f"user_picture_id in [\"{pk}\"]")
+    return faces.delete(f"user_picture_id in {pk}").delete_count
 
 def disable_user(now: int, user_id: str):
     users = get_users_collection()
