@@ -223,30 +223,6 @@ def emotions(current_user, user_id):
 
         return {"message":"oops, an error occured"}, 500
 
-@blueprint.route("/v1w/face-auth/emotions/<user_id>/<session_id>", methods=["PUT"])
-@auth_required
-def additional_emotion(current_user, user_id, session_id):
-    try:
-        emotions_list, session_id = service.add_additional_emotion(user_id=user_id, session_id=session_id)
-
-        return {'emotions': emotions_list, 'sessionId': session_id}
-    except exceptions.UserDisabled as e:
-        logging.error(e)
-
-        return {'message': str(e), 'code': _user_disabled}, 403
-    except exceptions.SessionTimeOutException as e:
-        logging.error(e)
-
-        return {'message': str(e), 'code': _session_timed_out}, 403
-    except exceptions.SessionNotFoundException as e:
-        logging.error(e)
-
-        return {'message': str(e), 'code': _session_not_found}, 404
-    except Exception as e:
-        logging.error(e, exc_info=e)
-
-        return {"message":"oops, an error occured"}, 500
-
 @blueprint.route("/v1w/face-auth/liveness/<user_id>/<session_id>", methods=["POST"])
 @auth_required
 def liveness(current_user, user_id, session_id):
@@ -260,9 +236,9 @@ def liveness(current_user, user_id, session_id):
             return {"message": "wrong image format", 'code': _invalid_properties}, 400
 
     try:
-        result, session_ended = service.process_images(token=current_user.raw_token, user_id=user_id, session_id=session_id, images=images)
+        result, session_ended, emotions = service.process_images(token=current_user.raw_token, user_id=user_id, session_id=session_id, images=images)
 
-        return {'result': result, 'sessionEnded': session_ended}
+        return {'result': result, 'sessionEnded': session_ended, 'emotions': emotions.split(","), 'sessionId': session_id}
     except exceptions.WrongImageSizeException as e:
         logging.error(e)
 

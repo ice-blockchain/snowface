@@ -146,6 +146,8 @@ def get_primary_metadata(user_id):
         offset = 0,
         limit = 1,
         output_fields = ["user_id","picture_id","face_metadata","uploaded_at", "url"],
+        ignore_growing = False,
+        consistency_level = "Strong"
     )
     if len(res) == 0:
         return None
@@ -273,15 +275,15 @@ def update_user(
 
     return insertedRows > 0
 
-def update_emotion_sequence_and_best_score(usr, emotion_sequence: int, best_score: list):
+def update_emotions_and_best_score(usr,emotions: list, emotion_sequence: int, best_score: list, last_negative_request_at = None):
     users = get_users_collection()
     insertedRows = users.upsert([
         [usr['user_id']],
         [usr['session_id']],
-        [usr['emotions']],
+        [emotions],
         [usr['session_started_at']],
         [usr['disabled_at']],
-        [usr['last_negative_request_at']],
+        [last_negative_request_at or usr['last_negative_request_at']],
         [emotion_sequence],
         [best_score]
     ]).upsert_count
@@ -310,6 +312,8 @@ def get_user(user_id: str):
         offset = 0,
         limit = 1,
         output_fields = ["user_id", "session_id", "emotions", "session_started_at", "disabled_at", "last_negative_request_at", "emotion_sequence", "best_pictures_score"],
+        ignore_growing = False,
+        consistency_level = "Strong"
     )
     if len(res) == 0:
         return None

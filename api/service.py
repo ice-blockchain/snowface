@@ -21,9 +21,10 @@ from milvus import (
     update_user                            as _update_user,
     disable_user                           as _disable_user,
     get_user                               as _get_user,
-    update_emotion_sequence_and_best_score as _update_emotion_sequence_and_best_score,
+    update_emotions_and_best_score         as _update_emotions_and_best_score,
     remove_session                         as _remove_session,
-    update_last_negative_request_at        as _update_last_negative_request_at
+    update_last_negative_request_at        as _update_last_negative_request_at,
+    get_users_collection                   as _get_users_collection
 )
 from PIL import Image
 import cv2
@@ -378,47 +379,36 @@ def _generate_emotions(usr):
         new_emotion, _ = _get_unique_emotion(list())
     emotions_list.append(new_emotion)
 
-    return emotions_list
+    return ",".join(emotions_list)
 
-def add_additional_emotion(session_id, user_id):
-    now = time.time_ns()
-    usr = _get_user(user_id)
-
-    _validate_session(usr=usr, user_id=user_id, session_id=session_id, now=now)
-
+def _add_additional_emotion(usr):
+    user_id = usr["user_id"]
     current_emotions_list = usr['emotions'].split(',')
     emotion_sequence = usr['emotion_sequence']
-    if emotion_sequence != len(current_emotions_list) or len(current_emotions_list) >= current_app.config['MAX_EMOTION_COUNT']:
-        return current_emotions_list, session_id
+    if emotion_sequence != len(current_emotions_list) or emotion_sequence >= current_app.config['MAX_EMOTION_COUNT']:
+        return ",".join(current_emotions_list)
 
     emotions_list = _generate_emotions(usr)
-    if _update_user(
-        user_id=user_id,
-        session_id=session_id,
-        emotions=",".join(emotions_list),
-        session_started_at=usr['session_started_at'],
-        disabled_at=0,
-        emotion_sequence=emotion_sequence,
-        best_pictures_score=usr['best_pictures_score'],
-        now=now
-    ) is False:
-        raise exceptions.UpsertException(f"can't update user:{user_id} by new emotion")
 
-    return emotions_list, session_id
+    return emotions_list
 
-def _generate_best_scores(usr, scores, model, images_count):
+def _generate_best_scores(usr, current_emotions_list,scores, model, images_count, session_success):
     idx = int(images_count / _images_count_per_call)
 
     neutral_idx = model.class_to_idx.get("neutral")
     neutral_scores = [s[neutral_idx]for s in scores]
     usr['best_pictures_score'][idx * _images_count_per_call:(idx+1)*_images_count_per_call] = neutral_scores
-
-    if _update_emotion_sequence_and_best_score(
+    usr['emotion_sequence'] = usr['emotion_sequence']+1
+    if usr['emotion_sequence'] >= len(current_emotions_list) and (not session_success):
+        usr['emotions'] = _add_additional_emotion(usr)
+    if _update_emotions_and_best_score(
         usr=usr,
-        emotion_sequence=usr['emotion_sequence']+1,
+        emotions = usr['emotions'],
+        emotion_sequence=usr['emotion_sequence'],
         best_score=usr["best_pictures_score"]
     ) is not True:
         raise exceptions.UpsertException(f"can't update emotion sequence and best score for user_id:{usr['user_id']}")
+    return usr['emotions']
 
 def _predict(usr, model, images, now):
     face_img_list = []
@@ -508,16 +498,25 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
         raise exceptions.NegativeRateLimitException(f"limit rate time didn't pass from the last negative try for user:{user_id} time: {usr['last_negative_request_at']}")
 
     current_emotions_list = usr['emotions'].split(',')
-    if usr['emotion_sequence'] >= len(current_emotions_list):
-        return False, False
 
-    current_emotion = current_emotions_list[usr['emotion_sequence']]
     if usr['emotion_sequence'] >= current_app.config['MAX_EMOTION_COUNT']:
         if _update_last_negative_request_at(usr=usr, now=now) is False:
             raise exceptions.UpsertException(f"update last negative request time failed for user:{user_id}")
 
-        return False, True
+        return False, True, usr['emotions']
 
+    current_emotion = current_emotions_list[usr['emotion_sequence']]
+    if usr['emotion_sequence'] >= len(current_emotions_list):
+        usr['emotions'] = _add_additional_emotion(usr)
+        if _update_emotions_and_best_score(
+                usr=usr,
+                emotions = usr['emotions'],
+                emotion_sequence=usr['emotion_sequence'],
+                best_score=usr['best_pictures_score'],
+                last_negative_request_at = usr['last_negative_request_at']
+        ) is False:
+            raise exceptions.UpsertException(f"can't update emotion sequence for user_id:{user_id}")
+        return False, False, usr['emotions']
     model = DeepFace.build_model("Emotion")
     emotion, scores = _predict(
         usr=usr,
@@ -528,17 +527,21 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
 
     if emotion != current_emotion:
         usr['emotion_sequence'] = usr['emotion_sequence']+1
-        if _update_emotion_sequence_and_best_score(
-            usr=usr,
-            emotion_sequence=usr['emotion_sequence'],
-            best_score=usr['best_pictures_score']
-        ) is False:
-            raise exceptions.UpsertException(f"can't update emotion sequence for user_id:{user_id}")
         session_ended = usr['emotion_sequence'] >= current_app.config['MAX_EMOTION_COUNT']
         if session_ended:
-            if _update_last_negative_request_at(usr=usr, now=now) is False:
-                raise exceptions.UpsertException(f"update last negative request time failed for user:{user_id}")
-        return False, session_ended
+            usr['last_negative_request_at'] = now
+        usr['best_pictures_score'][0] = usr['emotion_sequence']
+        if usr['emotion_sequence'] >= len(current_emotions_list):
+            usr['emotions'] = _add_additional_emotion(usr)
+        if _update_emotions_and_best_score(
+            usr=usr,
+            emotions = usr['emotions'],
+            emotion_sequence=usr['emotion_sequence'],
+            best_score=usr['best_pictures_score'],
+            last_negative_request_at = usr['last_negative_request_at']
+        ) is False:
+            raise exceptions.UpsertException(f"can't update emotion sequence for user_id:{user_id}")
+        return False, session_ended, usr['emotions']
 
     images_count = _count_user_images(user_id)
     for idx, img in enumerate(images):
@@ -547,17 +550,20 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
             user_id=user_id,
             idx=idx + images_count
         )
-
-    _generate_best_scores(
+    session_success = _count_user_images(user_id) == _images_count_per_call * _default_emotions_num
+    session_ended = usr['emotion_sequence'] >= current_app.config['MAX_EMOTION_COUNT']
+    emotions = _generate_best_scores(
         usr=usr,
+        current_emotions_list=current_emotions_list,
         scores=scores,
         model=model,
-        images_count=images_count
+        images_count=images_count,
+        session_success = session_success
     )
 
-    if _count_user_images(user_id) == _images_count_per_call * _default_emotions_num:
+    if session_success:
         _finish_session(usr, token)
 
-        return True, True
+        return True, True, emotions
 
-    return True, False
+    return True, session_ended, emotions
