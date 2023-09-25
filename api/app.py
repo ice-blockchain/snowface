@@ -37,12 +37,6 @@ def create_app():
     app.config['METADATA_UPDATED_SECRET'] = os.environ.get("METADATA_UPDATED_SECRET")
     app.config['PRIMARY_PHOTO_ERROR_LIMIT'] = os.environ.get("PRIMARY_PHOTO_ERROR_LIMIT")
     init_rate_limiters(app)
-    app.config['IMG_STORAGE_PATH'] = os.environ.get('IMG_STORAGE_PATH')
-    if not app.config['IMG_STORAGE_PATH']:
-        raise Exception("IMG_STORAGE_PATH was not set")
-
-    if app.config['IMG_STORAGE_PATH'].endswith('/') is False:
-        app.config['IMG_STORAGE_PATH'] = app.config['IMG_STORAGE_PATH'] + '/'
 
     app.config['SESSION_DURATION'] = int(os.environ.get('SESSION_DURATION', 600)) * int(1e9)
     app.config['LIMIT_RATE'] = int(os.environ.get('LIMIT_RATE', 60)) * int(1e9)
@@ -51,7 +45,11 @@ def create_app():
     app.config['TOTAL_BEST_PICTURES'] = int(os.environ.get('TOTAL_BEST_PICTURES', 7))
     app.config['MAX_EMOTION_COUNT'] = int(os.environ.get('MAX_EMOTION_COUNT', 10))
     app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_UPLOAD_CONTENT_LENGTH', 16 * 1000 * 1000))
-
+    app.config['IMG_STORAGE_PATH'] = os.environ.get('IMG_STORAGE_PATH')
+    if (not app.config['IMG_STORAGE_PATH']) and app.config['BASE_SIMILARITY_ENDPOINT']:
+        raise Exception("IMG_STORAGE_PATH was not set")
+    if app.config['IMG_STORAGE_PATH'].endswith('/') is False:
+        app.config['IMG_STORAGE_PATH'] = app.config['IMG_STORAGE_PATH'] + '/'
     with app.app_context():
         when_ready(app)
 
