@@ -30,6 +30,7 @@ services:
     environment:
       # auth
       JWT_SECRET: bogus # required, must be the same value as on other backend apps
+      METADATA_UPDATED_SECRET: bogus-secret
       AUTH_CREDENTIALS_FILE_PATH: /.firebase-auth.json # to work with firebase tokens, must be the same value as on other backend apps or GOOGLE_APPLICATION_CREDENTIALS
       # Milvus connection setup
       # to enable TLS change here to https and cnange security.tlsMode to 1 into milvus.yaml
@@ -40,7 +41,7 @@ services:
       MILVUS_PASSWORD: Milvus # default = Milvus
       LIMIT_RATE: 30 # seconds, staging value
       LIMIT_RATE_NEGATIVE: 1 # second, staging value
-      BASE_SIMILARITY_ENDPOINT: http://127.0.0.1:5000/v1w/face-auth/similarity/ # change to server B endpoint address with /v1w/face-auth/similarity/ suffix.
+      SIMILARITY_SERVER: http://127.0.0.1:5000/ # change to server B address.
       TOTAL_BEST_PICTURES: 7
       MAX_EMOTION_COUNT: 10
       MAX_CONTENT_LENGTH: 1000000 # 1 Mb

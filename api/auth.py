@@ -51,8 +51,8 @@ def auth_required(f):
                 user = _parse_firebase(token)
             if "X-Account-Metadata" in request.headers:
                 user = _modify_with_metadata(user, request.headers["X-Account-Metadata"])
-            user_id_in_url = request.view_args["user_id"]
-            if user_id_in_url != user.user_id:
+            user_id_in_url = request.view_args.get("user_id","")
+            if user_id_in_url and user_id_in_url != user.user_id:
                 logging.error(f"operation not allowed. uri>{user_id_in_url}!=token>{user.user_id}")
                 return {
                     "message": f"operation not allowed. uri>{user_id_in_url}!=token>{user.user_id}",

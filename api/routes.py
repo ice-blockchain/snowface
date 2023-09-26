@@ -1,7 +1,7 @@
 from flask import Blueprint, request, current_app
 import service, exceptions, webhook
 
-from auth import auth_required
+from auth import auth_required, Token
 from limits.storage import MemoryStorage
 from limits.strategies import MovingWindowRateLimiter
 from limits import parse
@@ -188,17 +188,23 @@ def primary_photo(current_user, user_id):
 
         return {"message":"oops, an error occured"}, 500
 
-@blueprint.route("/v1w/face-auth/primary_photo/<user_id>", methods=["DELETE"])
-def delete_photos(user_id):
+@blueprint.route("/v1w/face-auth/", methods=["DELETE"])
+@auth_required
+def delete_photos(current_user: Token):
     api_header = request.headers.get("X-API-Key","")
     if api_header != current_app.config['METADATA_UPDATED_SECRET']:
-        return {"message":"not allowed: X-API-Key mismatch", "code":"OPERATION_NOT_ALLOWED"},403
+        return {"message":"not allowed: X-API-Key mismatch", "code":"OPERATION_NOT_ALLOWED"}, 403
     try:
-        service.delete_user_photos_and_metadata(user_id)
-        return "", 200
+        if current_app.config["MINIO_URI"]:
+            service.delete_user_photos_and_metadata(current_user.user_id)
+            return "", 200
+        else:
+            service.delete_temporary_user_data(current_user.user_id)
+            return service.proxy_delete(current_user)
+
     except exceptions.MetadataNotFound as e:
         logging.error(e)
-        return {"message": str(e), "code":_no_primary_metadata}, 404
+        return {"message": str(e), "code":_no_primary_metadata}, 204
     except Exception as e:
         logging.error(e, exc_info=e)
         return {"message":"oops, an error occured"}, 500
