@@ -142,6 +142,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
                     secondary_md=None,
                     user={"disabled_at": now}
                 )
+                logging.info(f"Face is matching with user {similar_users[0]}, distance {distances[0]} {euclidian} < {threshold}")
                 raise exceptions.UserDisabled(f"Face is matching with user {similar_users[0]}, distance {distances[0]} {euclidian} < {threshold}")
         else:
             # that similar user dont have 2nd pic yet,but we can re-check with fallback model
@@ -165,6 +166,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
                         secondary_md=None,
                         user={"disabled_at": now}
                     )
+                    logging.info(f"Face is matching with user {similar_users[0]}, distance {distances[0]} {res['distance']} < {res['threshold']}")
                     raise exceptions.UserDisabled(f"Face is matching with user {similar_users[0]}, distance {distances[0]} {res['distance']} < {res['threshold']}")
     url = put_primary_photo(user_id,photo_stream.stream)
     upd, rows = _set_primary_metadata(now, user_id, md, url)
@@ -410,7 +412,8 @@ def _generate_best_scores(usr, current_emotions_list,scores, model, images_count
         raise exceptions.UpsertException(f"can't update emotion sequence and best score for user_id:{usr['user_id']}")
     return usr['emotions']
 
-def _predict(usr, model, images, now):
+def _predict(usr, model, images, now, current_emotion):
+    t = time.time()
     face_img_list = []
     for img in images:
         loaded_image = loadImageFromStream(img)
@@ -421,8 +424,8 @@ def _predict(usr, model, images, now):
 
     emotions, scores = model.predict_multi_emotions(face_img_list=face_img_list)
     emotion = max(emotions, key=emotions.count)
-
-    return emotion, scores
+    logging.debug(f"[U:{usr['user_id']}][S:{usr['session_id']}] Prediction took {time.time()-t}")
+    return emotion, scores, emotions.count(emotion), emotions.count(current_emotion)
 
 def _rollback_images_devide_modulo_15(user_id: str):
     images_count = _count_user_images(user_id)
@@ -518,14 +521,16 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
             raise exceptions.UpsertException(f"can't update emotion sequence for user_id:{user_id}")
         return False, False, usr['emotions']
     model = DeepFace.build_model("Emotion")
-    emotion, scores = _predict(
+    emotion, scores, frames, frames_w_target = _predict(
         usr=usr,
         model=model,
         images=images,
-        now=now
+        now=now,
+        current_emotion = current_emotion,
     )
 
     if emotion != current_emotion:
+        logging.debug(f"[U:{user_id}][S:{session_id}] emotion mismatch awaited {current_emotion} ({frames_w_target}) got {emotion} ({frames})")
         usr['emotion_sequence'] = usr['emotion_sequence']+1
         session_ended = usr['emotion_sequence'] >= current_app.config['MAX_EMOTION_COUNT']
         if session_ended:

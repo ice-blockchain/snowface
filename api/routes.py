@@ -1,4 +1,4 @@
-from flask import Blueprint, request
+from flask import Blueprint, request, current_app
 import service, exceptions, webhook
 
 from auth import auth_required
@@ -31,7 +31,6 @@ def init_rate_limiters(app):
         _primary_photo_rate_limiter_rate = None
 
 def _allowed_file_format(filename):
-    print(filename)
     return '.' in filename and \
         filename.rsplit('.', 1)[1].lower() in _allowed_extensions
 
@@ -230,7 +229,7 @@ def liveness(current_user, user_id, session_id):
     if images is None:
         return {"message": "you must pass images input", 'code': _invalid_properties}, 400
     if len(images) != 15:
-        return {"message": "wrong number of images", 'code': _invalid_properties}, 400
+        return {"message": f"wrong number of images: {len(images)}", 'code': _invalid_properties}, 400
     for img in images:
         if _allowed_file_format(img.filename) is False:
             return {"message": "wrong image format", 'code': _invalid_properties}, 400

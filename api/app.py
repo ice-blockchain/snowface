@@ -1,4 +1,6 @@
 # 3rd parth dependencies
+import logging
+
 from flask import Flask
 from routes import blueprint
 
@@ -12,6 +14,8 @@ import os
 def create_app():
     app = Flask(__name__)
     app.register_blueprint(blueprint)
+    app.config['LOGGING_LEVEL'] = os.environ.get('LOGGING_LEVEL','INFO')
+    logging.basicConfig(level=app.config['LOGGING_LEVEL'])
     jwt_secret = os.environ.get('JWT_SECRET')
     app.config['JWT_SECRET'] = jwt_secret
     if not app.config['JWT_SECRET']:
@@ -34,10 +38,12 @@ def create_app():
 
     app.config['GOOGLE_APPLICATION_CREDENTIALS'] = firebase_file_content
     app.config['METADATA_UPDATED_CALLBACK_URL'] = os.environ.get("METADATA_UPDATED_CALLBACK_URL")
-    app.config['METADATA_UPDATED_SECRET'] = os.environ.get("METADATA_UPDATED_SECRET")
+    app.config['METADATA_UPDATED_SECRET'] = os.environ.get("METADATA_UPDATED_SECRET","").replace("\n","")
     app.config['PRIMARY_PHOTO_ERROR_LIMIT'] = os.environ.get("PRIMARY_PHOTO_ERROR_LIMIT")
     init_rate_limiters(app)
 
+    if (not app.config['METADATA_UPDATED_SECRET']) and app.config['METADATA_UPDATED_CALLBACK_URL']:
+        raise Exception("METADATA_UPDATED_SECRET was not set")
     app.config['SESSION_DURATION'] = int(os.environ.get('SESSION_DURATION', 600)) * int(1e9)
     app.config['LIMIT_RATE'] = int(os.environ.get('LIMIT_RATE', 60)) * int(1e9)
     app.config['LIMIT_RATE_NEGATIVE'] = int(os.environ.get('LIMIT_RATE_NEGATIVE', 1)) * int(1e9)
@@ -48,7 +54,7 @@ def create_app():
     app.config['IMG_STORAGE_PATH'] = os.environ.get('IMG_STORAGE_PATH')
     if (not app.config['IMG_STORAGE_PATH']) and app.config['BASE_SIMILARITY_ENDPOINT']:
         raise Exception("IMG_STORAGE_PATH was not set")
-    if app.config['IMG_STORAGE_PATH'].endswith('/') is False:
+    if app.config['BASE_SIMILARITY_ENDPOINT'] and app.config['IMG_STORAGE_PATH'].endswith('/') is False:
         app.config['IMG_STORAGE_PATH'] = app.config['IMG_STORAGE_PATH'] + '/'
     with app.app_context():
         when_ready(app)

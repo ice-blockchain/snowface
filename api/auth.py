@@ -4,6 +4,7 @@ from flask import request, abort
 from flask import current_app
 from flask import g
 from firebase_admin import auth, initialize_app, credentials
+import logging
 
 
 _issuer_ice = "ice.io/access"
@@ -58,6 +59,7 @@ def auth_required(f):
 
                 }, 403
         except Exception as e:
+            logging.error(e)
             return {
                 "message": str(e),
                 "code": "INVALID_TOKEN",
@@ -78,7 +80,6 @@ def _parse_ice(token):
 
 def _parse_firebase(token):
     jwt_data = auth.verify_id_token(token, app = _get_firebase_client())
-    print(jwt_data)
     return Token(
         token,
         jwt_data["uid"],
