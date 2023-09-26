@@ -4,6 +4,7 @@ from flask import request, abort
 from flask import current_app
 from flask import g
 from firebase_admin import auth, initialize_app, credentials
+import logging
 
 
 _issuer_ice = "ice.io/access"
@@ -52,12 +53,14 @@ def auth_required(f):
                 user = _modify_with_metadata(user, request.headers["X-Account-Metadata"])
             user_id_in_url = request.view_args["user_id"]
             if user_id_in_url != user.user_id:
+                logging.error(f"operation not allowed. uri>{user_id_in_url}!=token>{user.user_id}")
                 return {
                     "message": f"operation not allowed. uri>{user_id_in_url}!=token>{user.user_id}",
                     "code": "OPERATION_NOT_ALLOWED"
 
                 }, 403
         except Exception as e:
+            logging.error(e)
             return {
                 "message": str(e),
                 "code": "INVALID_TOKEN",
@@ -78,7 +81,6 @@ def _parse_ice(token):
 
 def _parse_firebase(token):
     jwt_data = auth.verify_id_token(token, app = _get_firebase_client())
-    print(jwt_data)
     return Token(
         token,
         jwt_data["uid"],
@@ -111,9 +113,9 @@ def _modify_with_metadata(user, mdToken):
     md_user_id = ""
     registeredWithProvider = metadata.get(_registered_with,"")
     if registeredWithProvider == "firebase":
-        md_user_id = metadata.get(_ice_id,"")
-    elif registeredWithProvider == "ice":
         md_user_id = metadata.get(_firebase_id,"")
+    elif registeredWithProvider == "ice":
+        md_user_id = metadata.get(_ice_id,"")
     if md_user_id:
         user.user_id = md_user_id
         user.metadata = mdToken

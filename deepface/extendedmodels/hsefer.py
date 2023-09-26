@@ -1,3 +1,4 @@
+import logging
 import os
 import time
 
@@ -88,7 +89,6 @@ class HSEmotionRecognizer:
         else:
             x=scores
         pred=np.argmax(x[0])
-        print("prediction took ", time.time()-t)
         if not logits:
             e_x = np.exp(x - np.max(x, axis=1)[:,np.newaxis])
             e_x = e_x / e_x.sum(axis=1)[:,None]
