@@ -53,6 +53,7 @@ def auth_required(f):
                 user = _modify_with_metadata(user, request.headers["X-Account-Metadata"])
             user_id_in_url = request.view_args["user_id"]
             if user_id_in_url != user.user_id:
+                logging.error(f"operation not allowed. uri>{user_id_in_url}!=token>{user.user_id}")
                 return {
                     "message": f"operation not allowed. uri>{user_id_in_url}!=token>{user.user_id}",
                     "code": "OPERATION_NOT_ALLOWED"
@@ -112,9 +113,9 @@ def _modify_with_metadata(user, mdToken):
     md_user_id = ""
     registeredWithProvider = metadata.get(_registered_with,"")
     if registeredWithProvider == "firebase":
-        md_user_id = metadata.get(_ice_id,"")
-    elif registeredWithProvider == "ice":
         md_user_id = metadata.get(_firebase_id,"")
+    elif registeredWithProvider == "ice":
+        md_user_id = metadata.get(_ice_id,"")
     if md_user_id:
         user.user_id = md_user_id
         user.metadata = mdToken
