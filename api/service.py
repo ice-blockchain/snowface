@@ -17,7 +17,7 @@ from milvus import (
     update_secondary_metadata              as _update_secondary_metadata,
     find_similar_users                     as _find_similar_users,
     set_primary_metadata                   as _set_primary_metadata,
-    delete_metadata                        as _delete_metadata,
+    delete_metadatas                        as _delete_metadatas,
     update_user                            as _update_user,
     disable_user                           as _disable_user,
     get_user                               as _get_user,
@@ -34,7 +34,7 @@ from deepface.commons import functions, distance
 from concurrent.futures import ThreadPoolExecutor, wait
 from deepface import DeepFace
 from deepface.commons import distance
-from minio_uploader import put_secondary_photo, put_primary_photo, get_primary_photo
+from minio_uploader import put_secondary_photo, put_primary_photo, get_primary_photo, delete_photos as _delete_photos
 import numpy as np
 
 _model = "SFace"
@@ -126,7 +126,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
             target_size=(640,640)
         )[0]["embedding"])
     except ValueError:
-        raise exceptions.NoFaces("No faces detected")
+        raise exceptions.NoFaces("No faces detected, userId: {user_id}")
     threshold = distance.findThreshold(_model,_similarity_metric)
     similar_users, distances = _find_similar_users(user_id,md, threshold)
     if similar_users[0] != user_id:
@@ -141,8 +141,8 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
                     secondary_md=None,
                     user={"disabled_at": now}
                 )
-                logging.info(f"Face is matching with user {similar_users[0]}, distance {distances[0]} {euclidian} < {threshold}")
-                raise exceptions.UserDisabled(f"Face is matching with user {similar_users[0]}, distance {distances[0]} {euclidian} < {threshold}")
+                logging.info(f"Face {user_id} is matching with user {similar_users[0]}, distance {distances[0]} {euclidian} < {threshold}")
+                raise exceptions.UserDisabled(f"Face {user_id} is matching with user {similar_users[0]}, distance {distances[0]} {euclidian} < {threshold}")
         else:
             # that similar user dont have 2nd pic yet,but we can re-check with fallback model
             simiar_user_picture = get_primary_photo(similar_users[0])
@@ -155,7 +155,6 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
                 normalization="base",
                 align=True
             )
-            print(res['distance'],res['threshold'])
             if res["verified"]:
                 disabled = _disable_user(now,user_id)
                 if disabled:
@@ -165,8 +164,8 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
                         secondary_md=None,
                         user={"disabled_at": now}
                     )
-                    logging.info(f"Face is matching with user {similar_users[0]}, distance {distances[0]} {res['distance']} < {res['threshold']}")
-                    raise exceptions.UserDisabled(f"Face is matching with user {similar_users[0]}, distance {distances[0]} {res['distance']} < {res['threshold']}")
+                    logging.info(f"Face {user_id} is matching with user {similar_users[0]}, distance {distances[0]} {res['distance']} < {res['threshold']}")
+                    raise exceptions.UserDisabled(f"Face {user_id} is matching with user {similar_users[0]}, distance {distances[0]} {res['distance']} < {res['threshold']}")
     url = put_primary_photo(user_id,photo_stream.stream)
     upd, rows = _set_primary_metadata(now, user_id, md, url)
     if rows > 0:
@@ -178,10 +177,10 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
                 user=user
             )
         except UnauthorizedFromWebhook as e:
-            _delete_metadata(upd["user_picture_id"])
+            _delete_metadatas([upd["user_picture_id"]])
             raise e
         except requests.RequestException as e:
-            _delete_metadata(upd["user_picture_id"])
+            _delete_metadatas([upd["user_picture_id"]])
             raise e # goes to 5xx
 
 def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_pics: list):
@@ -450,14 +449,14 @@ def _save_image(image, idx, user_id):
         _rollback_images_devide_modulo_15(user_id)
         raise e
 
-def _send_best_images(img_storage_path, base_similarity_endpoint, token, user_id, best_images_indexes):
+def _send_best_images(img_storage_path:str, similarity_server:str, token, user_id, best_images_indexes):
     files = []
     for img_idx in best_images_indexes:
         file_path = f"{img_storage_path}{user_id}/{img_idx}{_picture_extension}"
         files.append(('image', (f"{img_idx}{_picture_extension}", open(file_path, 'rb'), 'image/jpeg')))
 
     response = requests.post(
-        url=f"{base_similarity_endpoint}{user_id}",
+        url=f"{similarity_server[:-1] if similarity_server.endswith('/') else similarity_server}/v1w/face-auth/similarity/{user_id}",
         files=files,
         headers={"Authorization": f"Bearer {token}"}
     )
@@ -480,7 +479,7 @@ def _finish_session(usr, token):
             executor.submit(
                 _send_best_images,
                 current_app.config['IMG_STORAGE_PATH'],
-                current_app.config['BASE_SIMILARITY_ENDPOINT'],
+                current_app.config['SIMILARITY_SERVER'],
                 token, usr['user_id'],
                 best_indexes
             )
@@ -572,3 +571,41 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
         return True, True, emotions
 
     return True, session_ended, emotions
+
+def delete_temporary_user_data(user_id:str):
+    _remove_user_images(user_id = user_id)
+    _remove_session(user_id)
+def delete_user_photos_and_metadata(current_user):
+    main, secondary, errs = _delete_photos(current_user.user_id)
+    if len(errs) > 0:
+        raise Exception(str(errs))
+    main_md, secondary_md, deleted_mds = _delete_metadatas(current_user.user_id, [f"{current_user.user_id}~0", f"{current_user.user_id}~1"])
+    if deleted_mds == 0:
+        raise exceptions.MetadataNotFound(f"face metadata for userId {current_user.user_id} was not deleted")
+    try:
+        callback(current_user,None,None,None)
+    except UnauthorizedFromWebhook as e:
+         _rollback_deletion(current_user, main, secondary, main_md, secondary_md)
+         raise e
+    except requests.RequestException as e:
+        _rollback_deletion(current_user, main, secondary, main_md, secondary_md)
+        raise e # goes to 5xx
+
+def _rollback_deletion(current_user,main, secondary, main_md, secondary_md):
+    if main is not None:
+        put_primary_photo(user_id=current_user.user_id, photo_content=io.BytesIO(main))
+    if secondary is not None:
+        put_secondary_photo(user_id=current_user.user_id, photo_content=io.BytesIO(secondary))
+    if main_md:
+        _set_primary_metadata(main_md["uploaded_at"], current_user.user_id, main_md["face_metadata"], main_md["url"])
+    if secondary_md:
+        _update_secondary_metadata(secondary_md["uploaded_at"], current_user.user_id, secondary_md["face_metadata"], secondary_md["url"])
+
+
+def proxy_delete(current_user):
+    similarity_server = current_app.config['SIMILARITY_SERVER']
+    response = requests.delete(
+        url=f"{similarity_server[:-1] if similarity_server.endswith('/') else similarity_server}/v1w/face-auth/",
+        headers={"Authorization": f"Bearer {current_user.raw_token}", "X-Account-Metadata": current_user.metadata}
+    )
+    return response.content, response.status_code

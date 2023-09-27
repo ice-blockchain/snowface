@@ -68,7 +68,7 @@ RUN pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted
 #RUN export CMAKE_ARGS="-DWITH_CUDA=ON -DCUDA_FAST_MATH=ON -DWITH_CUBLAS=ON -DCUDA_ARCH_PTX=8.6 -DWITH_NVCUVID=ON -DWITH_NVCUVENC=ON" && export ENABLE_CONTRIB=1 && export ENABLE_ROLLING=1 && pip install /app/opencv_contrib_python_rolling-4.6.0.20221102-cp36-abi3-linux_x86_64.whl
 # -----------------------------------
 # if you will use gpu, then you should install tensorflow-gpu package
-RUN pip --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host=files.pythonhosted.org install onnxruntime-gpu #nvidia-cudnn-cu11==8.6.0.163
+RUN pip --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host=files.pythonhosted.org install onnxruntime-gpu==1.15.1 #nvidia-cudnn-cu11==8.6.0.163
 # -----------------------------------
 # install deepface from source code (always up-to-date)
 RUN pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host=files.pythonhosted.org -e .

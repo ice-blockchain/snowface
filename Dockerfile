@@ -28,7 +28,7 @@ WORKDIR /app
 
 # -----------------------------------
 # if you will use gpu, then you should install tensorflow-gpu package
-RUN pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host=files.pythonhosted.org onnxruntime
+RUN pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host=files.pythonhosted.org onnxruntime==1.15.1
 # -----------------------------------
 # install deepface from pypi release (might be out-of-the-date)
 # RUN pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host=files.pythonhosted.org deepface

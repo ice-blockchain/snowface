@@ -42,12 +42,12 @@ def create_app():
     app.config['PRIMARY_PHOTO_ERROR_LIMIT'] = os.environ.get("PRIMARY_PHOTO_ERROR_LIMIT")
     init_rate_limiters(app)
 
-    if (not app.config['METADATA_UPDATED_SECRET']) and app.config['METADATA_UPDATED_CALLBACK_URL']:
+    if not app.config['METADATA_UPDATED_SECRET'] and app.config['METADATA_UPDATED_CALLBACK_URL']:
         raise Exception("METADATA_UPDATED_SECRET was not set")
     app.config['SESSION_DURATION'] = int(os.environ.get('SESSION_DURATION', 600)) * int(1e9)
     app.config['LIMIT_RATE'] = int(os.environ.get('LIMIT_RATE', 60)) * int(1e9)
     app.config['LIMIT_RATE_NEGATIVE'] = int(os.environ.get('LIMIT_RATE_NEGATIVE', 1)) * int(1e9)
-    app.config['BASE_SIMILARITY_ENDPOINT'] = os.environ.get('BASE_SIMILARITY_ENDPOINT')
+    app.config['SIMILARITY_SERVER'] = os.environ.get('SIMILARITY_SERVER')
     app.config['TOTAL_BEST_PICTURES'] = int(os.environ.get('TOTAL_BEST_PICTURES', 7))
     app.config['MAX_EMOTION_COUNT'] = int(os.environ.get('MAX_EMOTION_COUNT', 10))
     app.config['TARGET_EMOTION_COUNT'] = int(os.environ.get('TARGET_EMOTION_COUNT', 3))
@@ -55,9 +55,9 @@ def create_app():
     app.config['INITIAL_EMOTION_COUNT'] = int(os.environ.get('INITIAL_EMOTION_COUNT', 3))
     app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_UPLOAD_CONTENT_LENGTH', 16 * 1000 * 1000))
     app.config['IMG_STORAGE_PATH'] = os.environ.get('IMG_STORAGE_PATH')
-    if (not app.config['IMG_STORAGE_PATH']) and app.config['BASE_SIMILARITY_ENDPOINT']:
+    if (not app.config['IMG_STORAGE_PATH']) and app.config['SIMILARITY_SERVER']:
         raise Exception("IMG_STORAGE_PATH was not set")
-    if app.config['BASE_SIMILARITY_ENDPOINT'] and app.config['IMG_STORAGE_PATH'].endswith('/') is False:
+    if app.config['SIMILARITY_SERVER'] and app.config['IMG_STORAGE_PATH'].endswith('/') is False:
         app.config['IMG_STORAGE_PATH'] = app.config['IMG_STORAGE_PATH'] + '/'
     with app.app_context():
         when_ready(app)
@@ -78,4 +78,4 @@ if __name__ == '__main__':
     load_dotenv("../.env")
     app = create_app()
     app.debug = False
-    app.run()
+    app.run(port=int(os.environ.get("SNOWFACE_PORT",5000)))
