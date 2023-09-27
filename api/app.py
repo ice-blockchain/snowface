@@ -50,6 +50,8 @@ def create_app():
     app.config['BASE_SIMILARITY_ENDPOINT'] = os.environ.get('BASE_SIMILARITY_ENDPOINT')
     app.config['TOTAL_BEST_PICTURES'] = int(os.environ.get('TOTAL_BEST_PICTURES', 7))
     app.config['MAX_EMOTION_COUNT'] = int(os.environ.get('MAX_EMOTION_COUNT', 10))
+    app.config['TARGET_EMOTION_COUNT'] = int(os.environ.get('TARGET_EMOTION_COUNT', 3))
+    app.config['INITIAL_EMOTION_COUNT'] = int(os.environ.get('INITIAL_EMOTION_COUNT', 3))
     app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_UPLOAD_CONTENT_LENGTH', 16 * 1000 * 1000))
     app.config['IMG_STORAGE_PATH'] = os.environ.get('IMG_STORAGE_PATH')
     if (not app.config['IMG_STORAGE_PATH']) and app.config['BASE_SIMILARITY_ENDPOINT']:
