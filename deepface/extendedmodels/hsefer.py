@@ -74,10 +74,8 @@ class HSEmotionRecognizer:
         return self.idx_to_class[pred],scores
 
     def predict_multi_emotions(self, face_img_list, logits=True):
-        pr_t = time.time()
         imgs = [self.preprocess(face_img) for face_img in face_img_list]
         imgs = np.concatenate(imgs, axis=0)
-        print("preparing images  inside lib took ", time.time()-pr_t)
         t = time.time()
         scores=self.ort_session.run(None, {"input": imgs})[0]
         if self.is_mtl:

@@ -51,6 +51,7 @@ def create_app():
     app.config['TOTAL_BEST_PICTURES'] = int(os.environ.get('TOTAL_BEST_PICTURES', 7))
     app.config['MAX_EMOTION_COUNT'] = int(os.environ.get('MAX_EMOTION_COUNT', 10))
     app.config['TARGET_EMOTION_COUNT'] = int(os.environ.get('TARGET_EMOTION_COUNT', 3))
+    app.config['TARGET_EMOTION_SCORE'] = int(os.environ.get('TARGET_EMOTION_SCORE', 70))
     app.config['INITIAL_EMOTION_COUNT'] = int(os.environ.get('INITIAL_EMOTION_COUNT', 3))
     app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_UPLOAD_CONTENT_LENGTH', 16 * 1000 * 1000))
     app.config['IMG_STORAGE_PATH'] = os.environ.get('IMG_STORAGE_PATH')
