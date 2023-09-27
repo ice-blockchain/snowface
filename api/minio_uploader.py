@@ -73,8 +73,11 @@ def delete_photos(user_id):
     client = _client_with_initialized_bucket()
     main_photo = get_primary_photo(user_id)
     secondary = get_photo(user_id, _picture_secondary)
-    main_photo_obj_name = DeleteObject(f"{user_id}/{_picture_primary}")
-    secondary_photo_obj_name = DeleteObject(f"{user_id}/{_picture_secondary}")
-    folder_obj_name = DeleteObject(f"{user_id}")
-    errs = client.remove_objects(_bucket_name,[main_photo_obj_name, secondary_photo_obj_name, folder_obj_name])
+    folder_obj_name = f"{user_id}"
+
+    errs = client.remove_objects(_bucket_name,[DeleteObject(i.object_name) for i in
+                                               client.list_objects(_bucket_name,prefix=folder_obj_name,recursive=True)]
+                                            + [DeleteObject(folder_obj_name)]
+
+                                 )
     return main_photo, secondary, list(errs)

@@ -200,7 +200,7 @@ def delete_photos(current_user: Token):
             return service.proxy_delete(current_user)
     except exceptions.MetadataNotFound as e:
         logging.error(e)
-        return {"message": str(e), "code":_no_primary_metadata}, 204
+        return "", 204
     except webhook.UnauthorizedFromWebhook as e:
         return str(e), 401
     except Exception as e:
