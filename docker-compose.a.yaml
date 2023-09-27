@@ -30,7 +30,6 @@ services:
     environment:
       # auth
       JWT_SECRET: bogus # required, must be the same value as on other backend apps
-      METADATA_UPDATED_SECRET: bogus-secret
       AUTH_CREDENTIALS_FILE_PATH: /.firebase-auth.json # to work with firebase tokens, must be the same value as on other backend apps or GOOGLE_APPLICATION_CREDENTIALS
       # Milvus connection setup
       # to enable TLS change here to https and cnange security.tlsMode to 1 into milvus.yaml

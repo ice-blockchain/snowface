@@ -1,5 +1,6 @@
 import os
 
+import minio.error
 from minio import Minio
 from minio.error import S3Error
 from minio.deleteobjects import DeleteObject
@@ -56,18 +57,24 @@ def put_proto(user_id: str, photo_id: int, photo_content):
     #return client.get_presigned_url("GET", _bucket_name,obj_name,expires=datetime.timedelta(days=365*10) ,version_id=res.version_id,)
 
 def get_photo(user_id: str, photo_id: int):
-    client = _client_with_initialized_bucket()
-    obj_name = f"{user_id}/{photo_id}"
-    res = client.get_object(_bucket_name, obj_name)
-    data = res.data
-    res.close()
-    res.release_conn()
-    return data
+    try:
+        client = _client_with_initialized_bucket()
+        obj_name = f"{user_id}/{photo_id}"
+        res = client.get_object(_bucket_name, obj_name)
+        data = res.data
+        res.close()
+        res.release_conn()
+        return data
+    except minio.error.S3Error as e:
+        if e.code == "NoSuchKey":
+            return None
 
 def delete_photos(user_id):
     client = _client_with_initialized_bucket()
+    main_photo = get_primary_photo(user_id)
+    secondary = get_photo(user_id, _picture_secondary)
     main_photo_obj_name = DeleteObject(f"{user_id}/{_picture_primary}")
     secondary_photo_obj_name = DeleteObject(f"{user_id}/{_picture_secondary}")
     folder_obj_name = DeleteObject(f"{user_id}")
     errs = client.remove_objects(_bucket_name,[main_photo_obj_name, secondary_photo_obj_name, folder_obj_name])
-    return list(errs)
+    return main_photo, secondary, list(errs)

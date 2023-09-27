@@ -191,20 +191,18 @@ def primary_photo(current_user, user_id):
 @blueprint.route("/v1w/face-auth/", methods=["DELETE"])
 @auth_required
 def delete_photos(current_user: Token):
-    api_header = request.headers.get("X-API-Key","")
-    if api_header != current_app.config['METADATA_UPDATED_SECRET']:
-        return {"message":"not allowed: X-API-Key mismatch", "code":"OPERATION_NOT_ALLOWED"}, 403
     try:
         if current_app.config["MINIO_URI"]:
-            service.delete_user_photos_and_metadata(current_user.user_id)
+            service.delete_user_photos_and_metadata(current_user)
             return "", 200
         else:
             service.delete_temporary_user_data(current_user.user_id)
             return service.proxy_delete(current_user)
-
     except exceptions.MetadataNotFound as e:
         logging.error(e)
         return {"message": str(e), "code":_no_primary_metadata}, 204
+    except webhook.UnauthorizedFromWebhook as e:
+        return str(e), 401
     except Exception as e:
         logging.error(e, exc_info=e)
         return {"message":"oops, an error occured"}, 500

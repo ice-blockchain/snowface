@@ -19,4 +19,4 @@ python-dotenv
 minio
 backoff==2.2.1
 limits==3.6.0
-onnx
+onnx==1.14.1

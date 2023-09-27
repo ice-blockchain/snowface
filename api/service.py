@@ -575,18 +575,37 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
 def delete_temporary_user_data(user_id:str):
     _remove_user_images(user_id = user_id)
     _remove_session(user_id)
-def delete_user_photos_and_metadata(user_id:str):
-    errs = _delete_photos(user_id)
+def delete_user_photos_and_metadata(current_user):
+    main, secondary, errs = _delete_photos(current_user.user_id)
     if len(errs) > 0:
         raise Exception(str(errs))
-    if _delete_metadatas([f"{user_id}~0", f"{user_id}~1"]) == 0:
-        raise exceptions.MetadataNotFound(f"face metadata for userId {user_id} was not deleted")
+    main_md, secondary_md, deleted_mds = _delete_metadatas(current_user.user_id, [f"{current_user.user_id}~0", f"{current_user.user_id}~1"])
+    if deleted_mds == 0:
+        raise exceptions.MetadataNotFound(f"face metadata for userId {current_user.user_id} was not deleted")
+    try:
+        callback(current_user,None,None,None)
+    except UnauthorizedFromWebhook as e:
+         _rollback_deletion(current_user, main, secondary, main_md, secondary_md)
+         raise e
+    except requests.RequestException as e:
+        _rollback_deletion(current_user, main, secondary, main_md, secondary_md)
+        raise e # goes to 5xx
+
+def _rollback_deletion(current_user,main, secondary, main_md, secondary_md):
+    if main is not None:
+        put_primary_photo(user_id=current_user.user_id, photo_content=io.BytesIO(main))
+    if secondary is not None:
+        put_secondary_photo(user_id=current_user.user_id, photo_content=io.BytesIO(secondary))
+    if main_md:
+        _set_primary_metadata(main_md["uploaded_at"], current_user.user_id, main_md["face_metadata"], main_md["url"])
+    if secondary_md:
+        _update_secondary_metadata(secondary_md["uploaded_at"], current_user.user_id, secondary_md["face_metadata"], secondary_md["url"])
+
 
 def proxy_delete(current_user):
     similarity_server = current_app.config['SIMILARITY_SERVER']
-    api_token = current_app.config['METADATA_UPDATED_SECRET']
     response = requests.delete(
         url=f"{similarity_server[:-1] if similarity_server.endswith('/') else similarity_server}/v1w/face-auth/",
-        headers={"X-API-Key": api_token,"Authorization": f"Bearer {current_user.raw_token}", "X-Account-Metadata": current_user.metadata}
+        headers={"Authorization": f"Bearer {current_user.raw_token}", "X-Account-Metadata": current_user.metadata}
     )
     return response.content, response.status_code
