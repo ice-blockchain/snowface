@@ -346,7 +346,6 @@ def emotions(user_id):
         if completed:
             new_emotion, _ = _get_unique_emotion([emotions_list[-1]])
         emotions_list.append(new_emotion)
-
     res = _update_user(
         user_id=user_id,
         session_id=session_id,
@@ -426,7 +425,7 @@ def _predict(usr, model, images, now, awaited_emotion):
     emotions, scores = model.predict_multi_emotions(face_img_list=face_img_list, logits = False)
     averages = np.mean(scores, axis=0)
     logging.debug(f"[U:{usr['user_id']}][S:{usr['session_id']}] Prediction took {time.time()-t}")
-    return averages[awaited_idx]*100, scores, model.idx_to_class[np.argmax(averages)], max(averages)*100
+    return averages[awaited_idx]*100.0, scores, model.idx_to_class[np.argmax(averages)], max(averages)*100, dict([(v,averages[k]*100) for k,v in model.idx_to_class.items()])
 
 def _rollback_images_devide_modulo_15(user_id: str):
     images_count = _count_user_images(user_id)
@@ -522,16 +521,16 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
             raise exceptions.UpsertException(f"can't update emotion sequence for user_id:{user_id}")
         return False, False, usr['emotions']
     model = DeepFace.build_model("Emotion")
-    awaited_score, scores, max_emotion, max_score = _predict(
+    awaited_score, scores, max_emotion, max_score, averages = _predict(
         usr=usr,
         model=model,
         images=images,
         now=now,
         awaited_emotion = current_emotion,
     )
-
-    if awaited_score < current_app.config['TARGET_EMOTION_SCORE']:
-        logging.info(f"[U:{user_id}][S:{session_id}] emotion mismatch awaited {current_emotion} (avg {awaited_score} < {current_app.config['TARGET_EMOTION_SCORE']}) got {max_emotion} ({max_score})")
+    relative_score = awaited_score*100.0/max_score
+    logging.info(f"[U:{user_id}][S:{session_id}] awaited {current_emotion}/{awaited_score} it is {relative_score} of ({max_emotion}/{max_score}=100)  < {current_app.config['TARGET_EMOTION_SCORE']} all:{averages}")
+    if relative_score < current_app.config['TARGET_EMOTION_SCORE']:
         usr['emotion_sequence'] = usr['emotion_sequence']+1
         session_ended = usr['emotion_sequence'] >= current_app.config['MAX_EMOTION_COUNT']
         if session_ended:
