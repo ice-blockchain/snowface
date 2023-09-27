@@ -44,7 +44,6 @@ _detector_low_quality = "yunet" # TODO: test with skip, if we gonna get proper p
 _similarity_metric = "euclidean_l2"
 _picture_extension = '.jpg'
 _max_executor_workers = 2
-_default_emotions_num = 3
 _images_count_per_call = 15
 _min_images_with_emotions_to_proceed = 1
 _time_format = '%Y-%m-%dT%H:%M:%S.%fZ%Z'
@@ -342,8 +341,10 @@ def emotions(user_id):
 
     session_id = str(uuid.uuid4())
     emotions_list = []
-    for _ in range(0, _default_emotions_num):
-        new_emotion, _ = _get_unique_emotion(list(emotions_list))
+    for _ in range(0, current_app.config['INITIAL_EMOTION_COUNT']):
+        new_emotion, completed = _get_unique_emotion(list(emotions_list))
+        if completed:
+            new_emotion, _ = _get_unique_emotion([emotions_list[-1]])
         emotions_list.append(new_emotion)
 
     res = _update_user(
@@ -555,7 +556,7 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
             user_id=user_id,
             idx=idx + images_count
         )
-    session_success = _count_user_images(user_id) == _images_count_per_call * _default_emotions_num
+    session_success = _count_user_images(user_id) == _images_count_per_call * current_app.config['TARGET_EMOTION_COUNT']
     session_ended = usr['emotion_sequence'] >= current_app.config['MAX_EMOTION_COUNT']
     emotions = _generate_best_scores(
         usr=usr,
