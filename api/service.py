@@ -47,7 +47,11 @@ _max_executor_workers = 2
 _images_count_per_call = 15
 _min_images_with_emotions_to_proceed = 1
 _time_format = '%Y-%m-%dT%H:%M:%S.%fZ%Z'
-_default_emotions_list = DeepFace.build_model("Emotion").idx_to_class
+_default_emotions_list = [
+    ['anger', 'surprise', 'happiness', 'neutral'],
+    ['contempt','sadness', 'fear'],
+    ['disgust']
+]
 
 def represent(img_path, model_name, detector_backend, enforce_detection, align):
     result = {}
@@ -307,14 +311,22 @@ def _remove_not_best_user_images(img_storage_path, user_id, best_images_indexes)
         if parts[0] not in best_images_indexes:
             os.remove(full_name)
 
-def _get_unique_emotion(current_emotions_list: list):
+def _get_unique_emotion(current_emotions_list: list, excluded_emotions = frozenset()):
     if len(current_emotions_list) == 0:
-        choice = random.choice(list(_default_emotions_list.values()))
+        choice = random.choice(_default_emotions_list[0])
 
         return choice.lower(), False
-
-    diff  = set(_default_emotions_list.values()) - set(current_emotions_list)
-    if len(diff) == 0:
+    last_weight = [current_emotions_list[-1] in emotions_by_weight for emotions_by_weight in _default_emotions_list].index(True)
+    diff = []
+    excluded=set(excluded_emotions)
+    excluded.update(current_emotions_list)
+    while last_weight < len(_default_emotions_list):
+        diff = set(_default_emotions_list[last_weight]) - set(excluded)
+        if len(diff) == 0:
+            last_weight += 1
+        else:
+            break
+    if last_weight >= len(_default_emotions_list) and len(diff) == 0:
         return None, True
 
     choice = random.choice(list(diff))
@@ -343,7 +355,7 @@ def emotions(user_id):
     for _ in range(0, current_app.config['INITIAL_EMOTION_COUNT']):
         new_emotion, completed = _get_unique_emotion(list(emotions_list))
         if completed:
-            new_emotion, _ = _get_unique_emotion([emotions_list[-1]])
+            new_emotion, _ = _get_unique_emotion([],excluded_emotions=set(emotions_list[-1]))
         emotions_list.append(new_emotion)
     res = _update_user(
         user_id=user_id,
@@ -422,7 +434,8 @@ def _predict(usr, model, images, now, awaited_emotion):
         face_img_list.append(loaded_image)
     awaited_idx = model.class_to_idx[awaited_emotion]
     emotions, scores = model.predict_multi_emotions(face_img_list=face_img_list, logits = False)
-    averages = np.mean(scores, axis=0)
+
+    averages = np.average(scores, axis=0, weights=[i for i in range(len(scores))]) # last frames weights more
     logging.debug(f"[U:{usr['user_id']}][S:{usr['session_id']}] Prediction took {time.time()-t}")
     return averages[awaited_idx]*100.0, scores, model.idx_to_class[np.argmax(averages)], max(averages)*100, dict([(v,averages[k]*100) for k,v in model.idx_to_class.items()])
 
