@@ -48,7 +48,7 @@ def create_users_collection(name):
     fields = [
         FieldSchema(name="user_id", dtype=DataType.VARCHAR, max_length=40, is_primary=True),
         FieldSchema(name="session_id", dtype=DataType.VARCHAR, max_length=36),
-        FieldSchema(name="emotions", dtype=DataType.VARCHAR, max_length=128),
+        FieldSchema(name="emotions", dtype=DataType.VARCHAR, max_length=512),
         FieldSchema(name="session_started_at", dtype=DataType.INT64),
         FieldSchema(name="disabled_at", dtype=DataType.INT64),
         FieldSchema(name="last_negative_request_at", dtype=DataType.INT64),
