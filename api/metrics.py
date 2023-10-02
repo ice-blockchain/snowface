@@ -16,6 +16,9 @@ _emotion_avg_score = Histogram("emotion_avg_score", "Summary with avg scores by 
 _emotions_success = Counter("emotion_success", f"Counter of successfully passed emotion liveness checks for emotion", labelnames=["expected_emotion"])
 _emotions_failure = Counter("emotion_failure", f"Counter of failed emotion liveness checks for emotion", labelnames=["expected_emotion"])
 _session_length = None
+
+_similarity_failure_distance_sface = Histogram("similarity_failure_distance_sface", "Euclidian (L2) distances of faces between primary users photo and failed secondary (for primary model: sface)", buckets=(1.05,1.1,1.15,1.2,1.3,1.5,1.75,2.0))
+_similarity_failure_distance_arcface = Histogram("similarity_failure_distance_arcface", "Euclidian (L2) distances of faces between primary users photo and failed secondary (for fallback model: arcface)", buckets=(1.1,1.15,1.2,1.3,1.5,1.75,2.0))
 def register_emotion_success(model: HSEmotionRecognizer, emotion: str, scores_by_frame: list, averages: dict):
     _emotions_success.labels(expected_emotion=emotion).inc()
     _update_frames(model, emotion,scores_by_frame, averages)
@@ -35,3 +38,8 @@ def _update_frames(model, emotion, scores_by_frame, averages):
             _frames_scores_with_emotion.labels(expected_emotion=emotion, actual_emotion = actual_emotion,frame = i).observe(scores_by_frame[i][idx])
     for actual_emotion in averages:
         _emotion_avg_score.labels(expected_emotion=emotion, actual_emotion = actual_emotion).observe(averages[actual_emotion])
+
+
+def register_similarity_failure(sface_distance, arcface_distance):
+    _similarity_failure_distance_sface.observe(sface_distance)
+    _similarity_failure_distance_arcface.observe(arcface_distance)

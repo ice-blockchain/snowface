@@ -104,9 +104,10 @@ def init_models():
         )
         if samplePerson.status_code == 200:
             img = loadImageFromStream(io.BytesIO(samplePerson.content))
-            DeepFace.represent(img_path=img, detector_backend=_detector_high_quality, model_name=_model)
-            DeepFace.represent(img_path=img, detector_backend=_detector_high_quality, model_name=_model_fallback)
-            emotion.predict_multi_emotions(face_img_list=[img])
+            if img:
+                DeepFace.represent(img_path=img, detector_backend=_detector_high_quality, model_name=_model)
+                DeepFace.represent(img_path=img, detector_backend=_detector_high_quality, model_name=_model_fallback)
+                emotion.predict_multi_emotions(face_img_list=[img])
     except requests.RequestException as e:
         logging.error(e, exc_info=e)
 
@@ -207,9 +208,11 @@ def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_
             align=True,
             normalization="base",
         )[0]["embedding"])
+        euclidian_sface = euclidian
         mdFallback, bestIndex, euclidian,threshold = extract_and_compare_metadatas(md_vector, pics,_model_fallback)
         if bestIndex == -1:
-            raise exceptions.NotSameUser(f"user mismatch: distance is greater than {threshold}: {euclidian}")
+            metrics.register_similarity_failure(euclidian_sface,euclidian)
+            raise exceptions.NotSameUser(f"user mismatch for user_id {user_id}: distance is greater than {threshold}: {euclidian_sface} {euclidian}")
     url = put_secondary_photo(user_id,raw_pics[bestIndex].stream)
     prev_state = _get_secondary_metadata(user_id)
     upd, rows = _update_secondary_metadata(now,user_id,md[bestIndex], url)
