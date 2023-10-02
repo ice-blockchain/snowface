@@ -47,7 +47,9 @@ ARG WORKERS=4
 ARG SNOWFACE_PORT=5000
 ENV WORKERS=${WORKERS}
 ENV SNOWFACE_PORT=${SNOWFACE_PORT}
+ENV PROMETHEUS_MULTIPROC_DIR=/prometheus-metrics
+ENV PROMETHEUS_DISABLE_CREATED_SERIES=True
 # -----------------------------------
 # run the app (re-configure port if necessary)
 EXPOSE $SNOWFACE_PORT
-CMD ["sh","-c","gunicorn --workers=$WORKERS --timeout=3600 --bind=0.0.0.0:$SNOWFACE_PORT 'app:create_app()'"]
+CMD ["sh","-c","gunicorn --workers=$WORKERS --config=/app/gunicorn.conf.py --timeout=3600 --bind=0.0.0.0:$SNOWFACE_PORT 'app:create_app()'"]
