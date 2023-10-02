@@ -13,8 +13,6 @@ import os
 
 def create_app():
     app = Flask(__name__)
-    try: os.mkdir(os.environ.get("PROMETHEUS_MULTIPROC_DIR","./"))
-    except: pass
     app.register_blueprint(blueprint)
     app.config['LOGGING_LEVEL'] = os.environ.get('LOGGING_LEVEL','INFO')
     logging.basicConfig(level=app.config['LOGGING_LEVEL'])

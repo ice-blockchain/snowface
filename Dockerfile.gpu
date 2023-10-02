@@ -83,6 +83,7 @@ ENV WORKERS=${WORKERS}
 ENV SNOWFACE_PORT=${SNOWFACE_PORT}
 ENV PROMETHEUS_MULTIPROC_DIR=/prometheus-metrics
 ENV PROMETHEUS_DISABLE_CREATED_SERIES=True
+RUN mkdir -p $PROMETHEUS_MULTIPROC_DIR
 # -----------------------------------
 # run the app (re-configure port if necessary)
 EXPOSE $SNOWFACE_PORT

@@ -104,7 +104,7 @@ def init_models():
         )
         if samplePerson.status_code == 200:
             img = loadImageFromStream(io.BytesIO(samplePerson.content))
-            if img:
+            if img is not None:
                 DeepFace.represent(img_path=img, detector_backend=_detector_high_quality, model_name=_model)
                 DeepFace.represent(img_path=img, detector_backend=_detector_high_quality, model_name=_model_fallback)
                 emotion.predict_multi_emotions(face_img_list=[img])
@@ -132,7 +132,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
             target_size=(640,640)
         )[0]["embedding"])
     except ValueError:
-        raise exceptions.NoFaces("No faces detected, userId: {user_id}")
+        raise exceptions.NoFaces(f"No faces detected, userId: {user_id}")
     threshold = distance.findThreshold(_model,_similarity_metric)
     similar_users, distances = _find_similar_users(user_id,md, threshold)
     if similar_users[0] != user_id:
