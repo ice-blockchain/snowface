@@ -149,15 +149,15 @@ def get_users_collection():
 
     return _users_collection
 
-def get_primary_metadata(user_id):
+def get_primary_metadata(user_id, search_growing = True):
     faces = get_faces_collection()
     res = faces.query(
         expr = f"user_picture_id == \"{user_id}~{_picture_primary}\"",
         offset = 0,
         limit = 1,
         output_fields = ["user_id","picture_id","face_metadata","uploaded_at", "url"],
-        ignore_growing = False,
-        consistency_level = "Strong"
+        ignore_growing = not search_growing,
+        consistency_level = "Strong" if search_growing else "Bounded"
     )
     if len(res) == 0:
         return None
@@ -316,15 +316,15 @@ def update_last_negative_request_at(usr, now: int):
 
     return insertedRows > 0
 
-def get_user(user_id: str):
+def get_user(user_id: str, search_growing = True):
     users = get_users_collection()
     res = users.query(
         expr = f"user_id == \"{user_id}\"",
         offset = 0,
         limit = 1,
         output_fields = ["user_id", "session_id", "emotions", "session_started_at", "disabled_at", "last_negative_request_at", "emotion_sequence", "best_pictures_score"],
-        ignore_growing = False,
-        consistency_level = "Strong"
+        ignore_growing = not search_growing,
+        consistency_level = "Strong" if search_growing else "Bounded"
     )
     if len(res) == 0:
         return None

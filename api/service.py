@@ -114,10 +114,10 @@ def init_models():
 
 def set_primary_photo(current_user, user_id: str, photo_stream):
     now = time.time_ns()
-    user = _get_user(user_id)
+    user = _get_user(user_id, search_growing=False)
     if user is not None and user["disabled_at"] > 0:
         raise exceptions.UserDisabled(f"User {user_id} was disabled at {user['disabled_at']}")
-    existing_md = _get_primary_metadata(user_id)
+    existing_md = _get_primary_metadata(user_id, search_growing=False)
     if existing_md is not None:
         raise exceptions.MetadataAlreadyExists(f"User {user_id} already owns primary face uploaded at {existing_md['uploaded_at']}")
     img = loadImageFromStream(photo_stream)
