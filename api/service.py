@@ -356,10 +356,12 @@ def emotions(user_id):
 
     session_id = str(uuid.uuid4())
     emotions_list = []
-    for _ in range(0, current_app.config['INITIAL_EMOTION_COUNT']):
+    total_emotions_count = sum([len(i) for i in _default_emotions_list])
+    for i in range(0, current_app.config['INITIAL_EMOTION_COUNT']):
         new_emotion, completed = _get_unique_emotion(list(emotions_list))
         if completed:
-            new_emotion, _ = _get_unique_emotion([],excluded_emotions=set(emotions_list[-1]))
+            idx = int(i/total_emotions_count)*total_emotions_count
+            new_emotion, _ = _get_unique_emotion(emotions_list[idx:],excluded_emotions=set(emotions_list[-1]))
         emotions_list.append(new_emotion)
     res = _update_user(
         user_id=user_id,
@@ -391,9 +393,11 @@ def _validate_session(usr, user_id, session_id, now):
 
 def _generate_emotions(usr):
     emotions_list = usr['emotions'].split(',')
+    total_emotions_count = sum([len(i) for i in _default_emotions_list])
     new_emotion, completed = _get_unique_emotion(usr['emotions'].split(','))
     if completed is True:
-        new_emotion, _ = _get_unique_emotion(list())
+        idx = int((len(emotions_list))/total_emotions_count)*total_emotions_count
+        new_emotion, _ = _get_unique_emotion(emotions_list[idx:], excluded_emotions=emotions_list[-1])
     emotions_list.append(new_emotion)
 
     return ",".join(emotions_list)
@@ -436,6 +440,9 @@ def _predict(usr, model, images, now, awaited_emotion):
             raise exceptions.WrongImageSizeException(f"wrong image size for user:{usr['user_id']}, session:{usr['session_id']}")
 
         face_img_list.append(loaded_image)
+    try: DeepFace.extract_faces(face_img_list[0], detector_backend=_detector_low_quality, enforce_detection=True)
+    except ValueError as e:
+        raise exceptions.NoFaces(f"No faces detected, userId: {usr['user_id']}")
     awaited_idx = model.class_to_idx[awaited_emotion]
     emotions, scores = model.predict_multi_emotions(face_img_list=face_img_list, logits = False)
 
