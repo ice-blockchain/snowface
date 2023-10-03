@@ -265,6 +265,10 @@ def liveness(current_user, user_id, session_id):
         logging.error(e)
 
         return {'message': str(e), 'code': _invalid_properties}, 400
+    except exceptions.NoFaces as e:
+        logging.error(e)
+
+        return {"message": str(e), "code":_no_faces}, 400
     except exceptions.UserDisabled as e:
         logging.error(e)
 
