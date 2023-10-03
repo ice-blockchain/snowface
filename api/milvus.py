@@ -5,7 +5,7 @@ import os
 from pymilvus import CollectionSchema, FieldSchema, DataType, utility, connections, Collection, Milvus, MilvusException
 import numpy as np
 from flask import current_app
-_conn_prefix = "default"
+_conn_prefix = "snowface-"+str(os.getpid())
 _faces_collection = None
 _users_collection = None
 
@@ -32,11 +32,15 @@ def on_exit(arbiter):
 
 def init_collection(name, create_fn):
     db = None
-    if not utility.has_collection(name):
+    if not utility.has_collection(name, using=_conn_prefix):
         db = create_fn(name)
-        db.load()
+        try: db.load()
+        except MilvusException as e:
+            if e.code == 5:
+                db.release()
+                db.load()
     else:
-        db = Collection(name=name)
+        db = Collection(name=name, using=_conn_prefix)
         try: db.load()
         except MilvusException as e:
             if e.code == 5:
@@ -66,7 +70,7 @@ def create_users_collection(name):
     users = Collection(
         name=name,
         schema=schema,
-        using='default'
+        using=_conn_prefix
     )
     users.create_index(
         field_name="best_pictures_score",
@@ -74,7 +78,9 @@ def create_users_collection(name):
             "metric_type":"L2",
             "index_type":"HNSW",
             "params":{"efConstruction":512, "M":16}
-        })
+        },
+
+    )
 
     return users
 
@@ -110,7 +116,7 @@ def create_faces_collection(name):
             )],
             description="Faces search "
         ),
-        using='default',
+        using=_conn_prefix,
         # partitions??? Shards???
     )
     faces.create_index(
