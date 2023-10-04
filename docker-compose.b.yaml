@@ -37,7 +37,7 @@ services:
   # Single instance, but we can also deploy a cluster with k8s https://milvus.io/docs/install_cluster-milvusoperator.md
   milvus-standalone:
     container_name: milvus-standalone
-    image: milvusdb/milvus:v2.3.0
+    image: milvusdb/milvus:v2.3.1
     command: ["milvus", "run", "standalone"]
     environment:
       ETCD_ENDPOINTS: localhost:2379

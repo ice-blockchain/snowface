@@ -30,7 +30,10 @@ def _get_minio_client():
 def _client_with_initialized_bucket():
     client = _get_minio_client()
     if not client.bucket_exists(_bucket_name):
-        client.make_bucket(_bucket_name)
+        try: client.make_bucket(_bucket_name)
+        except minio.error.S3Error as e:
+            if e.code != "BucketAlreadyOwnedByYou":
+                raise e
     return client
 
 def put_primary_photo(user_id: str, photo_content):

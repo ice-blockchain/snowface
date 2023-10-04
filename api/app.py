@@ -15,7 +15,7 @@ def create_app():
     app = Flask(__name__)
     app.register_blueprint(blueprint)
     app.config['LOGGING_LEVEL'] = os.environ.get('LOGGING_LEVEL','INFO')
-    logging.basicConfig(level=app.config['LOGGING_LEVEL'])
+    logging.basicConfig(level=app.config['LOGGING_LEVEL'], format="%(asctime)s.%(msecs)d %(levelname)s:%(name)s:PID:%(process)d %(message)s")
     jwt_secret = os.environ.get('JWT_SECRET')
     app.config['JWT_SECRET'] = jwt_secret
     if not app.config['JWT_SECRET']:
