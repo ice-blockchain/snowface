@@ -156,7 +156,7 @@ def get_primary_metadata(user_id, search_growing = True):
         offset = 0,
         limit = 1,
         output_fields = ["user_id","picture_id","face_metadata","uploaded_at", "url"],
-        ignore_growing = not search_growing,
+        ignore_growing = False,
         consistency_level = "Strong" if search_growing else "Bounded"
     )
     if len(res) == 0:
@@ -323,7 +323,7 @@ def get_user(user_id: str, search_growing = True):
         offset = 0,
         limit = 1,
         output_fields = ["user_id", "session_id", "emotions", "session_started_at", "disabled_at", "last_negative_request_at", "emotion_sequence", "best_pictures_score"],
-        ignore_growing = not search_growing,
+        ignore_growing = False,
         consistency_level = "Strong" if search_growing else "Bounded"
     )
     if len(res) == 0:
