@@ -339,18 +339,15 @@ def _get_unique_emotion(current_emotions_list: list, excluded_emotions = frozens
 
 def emotions(user_id):
     now = time.time_ns()
-    usr = _get_user(user_id)
-
+    usr = _get_user(user_id, search_growing=False)
     if usr is not None:
         if usr['disabled_at'] is not None and usr['disabled_at'] > 0:
             raise exceptions.UserDisabled(f"user:{usr['user_id']} disabled")
         if usr['last_negative_request_at'] > 0 and now - usr['last_negative_request_at'] <= current_app.config['LIMIT_RATE_NEGATIVE']:
             raise exceptions.NegativeRateLimitException(f"limit rate time didn't pass from the last negative try for user:{user_id} time: {usr['last_negative_request_at']}")
-
         secondary = _get_secondary_metadata(user_id)
         if secondary is not None and secondary['uploaded_at'] is not None and now - secondary['uploaded_at'] <= current_app.config['LIMIT_RATE']:
             raise exceptions.RateLimitException(f"rate limit exception for user_id:{user_id}, already passed the liveness at {secondary['uploaded_at']}")
-
         _remove_session(user_id)
         _remove_user_images(user_id)
 
@@ -368,6 +365,7 @@ def emotions(user_id):
         session_id=session_id,
         emotions=",".join(emotions_list),
         session_started_at=now,
+        last_negative_request_at=usr["last_negative_request_at"] if usr else 0,
         disabled_at=0,
         emotion_sequence=0,
         best_pictures_score=np.array([0.0]*45),
@@ -516,8 +514,7 @@ def _finish_session(usr, token):
 
 def process_images(token: str, user_id: str, session_id: str, images:list):
     now = time.time_ns()
-    usr = _get_user(user_id)
-
+    usr = _get_user(user_id, search_growing=True)
     _validate_session(usr=usr, user_id=user_id, session_id=session_id, now=now)
 
     if usr['last_negative_request_at'] > 0 and now - usr['last_negative_request_at'] <= current_app.config['LIMIT_RATE_NEGATIVE']:

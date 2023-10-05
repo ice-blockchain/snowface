@@ -45,6 +45,7 @@ services:
       MINIO_ACCESSKEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       COMMON_SECURITY_AUTHORIZATION_ENABLED: "true"
+      PROXY_TIME_TICK_INTERVAL: 20
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-..}/snowface-volumes/milvus:/var/lib/milvus
      # - ./milvus.yaml:/milvus/configs/milvus.yaml
