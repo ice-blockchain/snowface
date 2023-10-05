@@ -254,35 +254,23 @@ def update_user(
     session_id: str,
     emotions: str,
     session_started_at,
+    last_negative_request_at,
     disabled_at,
     emotion_sequence,
     best_pictures_score,
     now
 ):
     users = get_users_collection()
-    user = get_user(user_id)
-    if user is not None:
-        insertedRows = users.upsert([
-            [user_id],
-            [session_id],
-            [emotions],
-            [session_started_at],
-            [disabled_at],
-            [user['last_negative_request_at']],
-            [emotion_sequence],
-            [best_pictures_score]
-        ]).upsert_count
-    else:
-        insertedRows = users.upsert([
-            [user_id],
-            [session_id],
-            [emotions],
-            [now],
-            [0],
-            [0],
-            [0],
-            [np.array([0.0]*45)]
-        ]).upsert_count
+    insertedRows = users.upsert([
+        [user_id],
+        [session_id],
+        [emotions],
+        [session_started_at],
+        [disabled_at],
+        [last_negative_request_at],
+        [emotion_sequence],
+        [best_pictures_score]
+    ]).upsert_count
 
     return insertedRows > 0
 
