@@ -3,6 +3,7 @@ import time
 from flask import g
 import os
 from pymilvus import CollectionSchema, FieldSchema, DataType, utility, connections, Collection, Milvus, MilvusException
+from pymilvus.client.types import LoadState
 import numpy as np
 from flask import current_app
 _conn_prefix = "snowface-"+str(os.getpid())
@@ -323,3 +324,13 @@ def remove_session(user_id: str):
     users = get_users_collection()
     expr = f"user_id in [\"{user_id}\"]"
     users.delete(expr)
+
+def ping(timeout = 30):
+    if _users_collection is None: get_users_collection()
+    state = utility.load_state(_users_collection.name, using=_conn_prefix, timeout=timeout)
+    if state != LoadState.Loaded:
+        raise Exception(f"Collection {_users_collection.name} is in {state} state")
+    if _faces_collection is None: get_faces_collection()
+    state = utility.load_state(_faces_collection.name, using=_conn_prefix, timeout=timeout)
+    if state != LoadState.Loaded:
+        raise Exception(f"Collection {_faces_collection.name} is in {state} state")

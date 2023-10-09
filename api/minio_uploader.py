@@ -1,6 +1,7 @@
 import os
 
 import minio.error
+import requests
 from minio import Minio
 from minio.error import S3Error
 from minio.deleteobjects import DeleteObject
@@ -84,3 +85,13 @@ def delete_photos(user_id):
 
                                  )
     return main_photo, secondary, list(errs)
+
+def ping(timeout = 30):
+    client = _client_with_initialized_bucket()
+    healthcheck_url = "/minio/health/cluster"
+    ssl = current_app.config["MINIO_SSL"]
+    minio_url = current_app.config["MINIO_URI"]
+    resp = requests.get(url=("https://" if ssl else "http://") + minio_url +healthcheck_url,
+                        verify=not ssl,
+                        timeout=timeout)
+    resp.raise_for_status()
