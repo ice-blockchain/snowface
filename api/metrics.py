@@ -16,6 +16,8 @@ _emotion_avg_score = Histogram("emotion_avg_score", "Summary with avg scores by 
 _emotions_success = Counter("emotion_success", f"Counter of successfully passed emotion liveness checks for emotion", labelnames=["expected_emotion"])
 _emotions_failure = Counter("emotion_failure", f"Counter of failed emotion liveness checks for emotion", labelnames=["expected_emotion"])
 _session_length = None
+_gunicorn_queue = Histogram("gunicorn_queue_request_time", "Time per request spent in queue", labelnames=["path"])
+REQUEST_TIME = Histogram('request_processing_seconds', 'Time spent processing request', labelnames=["path"])
 
 _similarity_failure_distance_sface = Histogram("similarity_failure_distance_sface", "Euclidian (L2) distances of faces between primary users photo and failed secondary (for primary model: sface)", buckets=(1.05,1.1,1.15,1.2,1.3,1.5,1.75,2.0))
 _similarity_failure_distance_arcface = Histogram("similarity_failure_distance_arcface", "Euclidian (L2) distances of faces between primary users photo and failed secondary (for fallback model: arcface)", buckets=(1.1,1.15,1.2,1.3,1.5,1.75,2.0))
@@ -31,6 +33,9 @@ def register_session_length(length:int):
     if not _session_length:
         _session_length = Histogram("emotion_session_length", "Length of the session", buckets=[i for i in range(current_app.config['MAX_EMOTION_COUNT'])])
     _session_length.observe(length)
+
+def register_gunicorn_latency(path, latency):
+    _gunicorn_queue.labels(path).observe(latency)
 def _update_frames(model, emotion, scores_by_frame, averages):
     for i in range(len(scores_by_frame)):
         for actual_emotion in model.class_to_idx:
