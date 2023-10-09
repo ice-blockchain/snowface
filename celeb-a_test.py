@@ -60,7 +60,7 @@ def upload_primary(userData):
     if response.status_code != 200:
         if not "NO_FACE" in response.text:
             print(f"primary for {user} failed with {response.status_code} {response.text}")
-        else: upload_primary(userData)
+        elif len(list(userData[1]['file'].iloc)) > 1: upload_primary(userData)
 
 def load_data():
     identities = pd.read_csv(os.path.join(path,"identity_CelebA.txt"), names=["file", "identity"], header = None, sep=" ")

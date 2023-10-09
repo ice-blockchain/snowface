@@ -9,7 +9,7 @@ from webhook import UnauthorizedFromWebhook
 import logging
 
 from prometheus_client import CONTENT_TYPE_LATEST
-from metrics import latest
+from metrics import latest, REQUEST_TIME
 from flask_httpauth import HTTPBasicAuth
 
 blueprint = Blueprint("routes", __name__)
@@ -140,155 +140,161 @@ def analyze():
 @blueprint.route("/v1w/face-auth/similarity/<user_id>", methods=["POST"])
 @auth_required
 def similar(current_user, user_id):
-    for img in request.files.getlist("image"):
-        if _allowed_file_format(img.filename) is False:
-            return {"message": "wrong image format", 'code': _invalid_properties}, 400
+    with REQUEST_TIME.labels(path="/v1w/face-auth/similarity").time():
+        for img in request.files.getlist("image"):
+            if _allowed_file_format(img.filename) is False:
+                return {"message": "wrong image format", 'code': _invalid_properties}, 400
 
-    try:
-        bestIndex, euclidian, updateTime = service.check_similarity_and_update_secondary_photo(current_user, user_id, request.files.getlist("image"))
-        return  {"userId":user_id, "bestIndex":bestIndex, "distance": euclidian, "secondaryPhotoUpdatedAt":updateTime}
-    except exceptions.MetadataNotFound as e:
-        logging.error(e)
-        return {"message": str(e), "code":_no_primary_metadata}, 400
-    except exceptions.NotSameUser as e:
-        logging.error(e)
-        return {"message": str(e), "code":_user_not_the_same}, 400
-    except exceptions.NoFaces as e:
-        logging.error(e)
-        return {"message": str(e), "code":_no_faces}, 400
-    except webhook.UnauthorizedFromWebhook as e:
-        return str(e), 401
-    except Exception as e:
-        logging.error(e, exc_info=e)
-        return {"message":"oops, an error occured"}, 500
+        try:
+            bestIndex, euclidian, updateTime = service.check_similarity_and_update_secondary_photo(current_user, user_id, request.files.getlist("image"))
+            return  {"userId":user_id, "bestIndex":bestIndex, "distance": euclidian, "secondaryPhotoUpdatedAt":updateTime}
+        except exceptions.MetadataNotFound as e:
+            logging.error(e)
+            return {"message": str(e), "code":_no_primary_metadata}, 400
+        except exceptions.NotSameUser as e:
+            logging.error(e)
+            return {"message": str(e), "code":_user_not_the_same}, 400
+        except exceptions.NoFaces as e:
+            logging.error(e)
+            return {"message": str(e), "code":_no_faces}, 400
+        except webhook.UnauthorizedFromWebhook as e:
+            return str(e), 401
+        except Exception as e:
+            logging.error(e, exc_info=e)
+            return {"message":"oops, an error occured"}, 500
 
 @blueprint.route("/v1w/face-auth/primary_photo/<user_id>", methods=["POST"])
 @auth_required
 def primary_photo(current_user, user_id):
-    if _allowed_file_format(request.files["image"].filename) is False:
-        return {"message": "wrong image format", 'code': _invalid_properties}, 400
+    with REQUEST_TIME.labels(path="/v1w/face-auth/primary_photo").time():
+        if _allowed_file_format(request.files["image"].filename) is False:
+            return {"message": "wrong image format", 'code': _invalid_properties}, 400
 
-    try:
-        if _primary_photo_rate_limiter_rate is not None and not _primary_photo_rate_limiter.test(_primary_photo_rate_limiter_rate, user_id): # global, should it be per user_id?
-            return {"message": f"rate limit for errors {_primary_photo_rate_limiter_rate} exceeded", "code":_rate_limit_exceeded}, 429
-        service.set_primary_photo(current_user, user_id, request.files["image"])
-        return ""
-    except exceptions.NoFaces as e:
-        logging.error(e)
-        if _primary_photo_rate_limiter_rate is not None:
-            _primary_photo_rate_limiter.hit(_primary_photo_rate_limiter_rate, user_id)
-        return {"message": str(e), "code":_no_faces}, 400
-    except exceptions.MetadataAlreadyExists as e:
-        logging.error(e)
-        if _primary_photo_rate_limiter_rate is not None:
-            _primary_photo_rate_limiter.hit(_primary_photo_rate_limiter_rate, user_id)
-        return {"message": str(e), "code":_already_uploaded}, 409
-    except exceptions.UserDisabled as e:
-        logging.error(e)
-        return {"message": str(e), "code":_user_disabled}, 403
-    except webhook.UnauthorizedFromWebhook as e:
-        return str(e), 401
-    except Exception as e:
-        logging.error(e, exc_info=e)
+        try:
+            if _primary_photo_rate_limiter_rate is not None and not _primary_photo_rate_limiter.test(_primary_photo_rate_limiter_rate, user_id): # global, should it be per user_id?
+                return {"message": f"rate limit for errors {_primary_photo_rate_limiter_rate} exceeded", "code":_rate_limit_exceeded}, 429
+            service.set_primary_photo(current_user, user_id, request.files["image"])
+            return ""
+        except exceptions.NoFaces as e:
+            logging.error(e)
+            if _primary_photo_rate_limiter_rate is not None:
+                _primary_photo_rate_limiter.hit(_primary_photo_rate_limiter_rate, user_id)
+            return {"message": str(e), "code":_no_faces}, 400
+        except exceptions.MetadataAlreadyExists as e:
+            logging.error(e)
+            if _primary_photo_rate_limiter_rate is not None:
+                _primary_photo_rate_limiter.hit(_primary_photo_rate_limiter_rate, user_id)
+            return {"message": str(e), "code":_already_uploaded}, 409
+        except exceptions.UserDisabled as e:
+            logging.error(e)
+            return {"message": str(e), "code":_user_disabled}, 403
+        except webhook.UnauthorizedFromWebhook as e:
+            return str(e), 401
+        except Exception as e:
+            logging.error(e, exc_info=e)
 
-        return {"message":"oops, an error occured"}, 500
+            return {"message":"oops, an error occured"}, 500
 
 @blueprint.route("/v1w/face-auth/", methods=["DELETE"])
 @auth_required
 def delete_photos(current_user: Token):
-    try:
-        if current_app.config["MINIO_URI"]:
-            service.delete_user_photos_and_metadata(current_user)
-            return "", 200
-        else:
-            service.delete_temporary_user_data(current_user.user_id)
-            return service.proxy_delete(current_user)
-    except exceptions.MetadataNotFound as e:
-        logging.error(e)
-        return "", 204
-    except webhook.UnauthorizedFromWebhook as e:
-        return str(e), 401
-    except Exception as e:
-        logging.error(e, exc_info=e)
-        return {"message":"oops, an error occured"}, 500
+    with REQUEST_TIME.labels(path="/v1w/face-auth/").time():
+        try:
+            if current_app.config["MINIO_URI"]:
+                service.delete_user_photos_and_metadata(current_user)
+                return "", 200
+            else:
+                service.delete_temporary_user_data(current_user.user_id)
+                return service.proxy_delete(current_user)
+        except exceptions.MetadataNotFound as e:
+            logging.error(e)
+            return "", 204
+        except webhook.UnauthorizedFromWebhook as e:
+            return str(e), 401
+        except Exception as e:
+            logging.error(e, exc_info=e)
+            return {"message":"oops, an error occured"}, 500
 @blueprint.route("/v1r/face-auth/status/<user_id>", methods=["GET"])
 @auth_required
 def user_status(current_user, user_id):
-    try:
-        status = service.get_status(user_id)
-        return status
-    except Exception as e:
-        logging.error(e, exc_info=e)
-        return {"message":"oops, an error occured"}, 500
+    with REQUEST_TIME.labels(path="/v1w/face-auth/status").time():
+        try:
+            status = service.get_status(user_id)
+            return status
+        except Exception as e:
+            logging.error(e, exc_info=e)
+            return {"message":"oops, an error occured"}, 500
 
 @blueprint.route("/v1w/face-auth/emotions/<user_id>", methods=["POST"])
 @auth_required
 def emotions(current_user, user_id):
-    try:
-        emotions_list, session_id, session_expired_at = service.emotions(user_id=user_id)
+    with REQUEST_TIME.labels(path="/v1w/face-auth/emotions").time():
+        try:
+            emotions_list, session_id, session_expired_at = service.emotions(user_id=user_id)
 
-        return {'emotions': emotions_list, 'sessionId': session_id, 'sessionExpiredAt': session_expired_at}
-    except exceptions.UserDisabled as e:
-        logging.error(e)
+            return {'emotions': emotions_list, 'sessionId': session_id, 'sessionExpiredAt': session_expired_at}
+        except exceptions.UserDisabled as e:
+            logging.error(e)
 
-        return {'message': str(e), 'code': _user_disabled}, 403
-    except exceptions.RateLimitException as e:
-        logging.error(e)
+            return {'message': str(e), 'code': _user_disabled}, 403
+        except exceptions.RateLimitException as e:
+            logging.error(e)
 
-        return {'message': str(e), 'code': _rate_limit_exceeded}, 429
-    except exceptions.NegativeRateLimitException as e:
-        logging.error(e)
+            return {'message': str(e), 'code': _rate_limit_exceeded}, 429
+        except exceptions.NegativeRateLimitException as e:
+            logging.error(e)
 
-        return {'message': str(e), 'code': _rate_limit_negative_exceeded}, 429
-    except Exception as e:
-        logging.error(e)
+            return {'message': str(e), 'code': _rate_limit_negative_exceeded}, 429
+        except Exception as e:
+            logging.error(e)
 
-        return {"message":"oops, an error occured"}, 500
+            return {"message":"oops, an error occured"}, 500
 
 @blueprint.route("/v1w/face-auth/liveness/<user_id>/<session_id>", methods=["POST"])
 @auth_required
 def liveness(current_user, user_id, session_id):
-    images = request.files.getlist("image")
-    if images is None:
-        return {"message": "you must pass images input", 'code': _invalid_properties}, 400
-    if len(images) != 15:
-        return {"message": f"wrong number of images: {len(images)}", 'code': _invalid_properties}, 400
-    for img in images:
-        if _allowed_file_format(img.filename) is False:
-            return {"message": "wrong image format", 'code': _invalid_properties}, 400
+    with REQUEST_TIME.labels(path="/v1w/face-auth/liveness").time():
+        images = request.files.getlist("image")
+        if images is None:
+            return {"message": "you must pass images input", 'code': _invalid_properties}, 400
+        if len(images) != 15:
+            return {"message": f"wrong number of images: {len(images)}", 'code': _invalid_properties}, 400
+        for img in images:
+            if _allowed_file_format(img.filename) is False:
+                return {"message": "wrong image format", 'code': _invalid_properties}, 400
 
-    try:
-        result, session_ended, emotions = service.process_images(token=current_user.raw_token, user_id=user_id, session_id=session_id, images=images)
+        try:
+            result, session_ended, emotions = service.process_images(token=current_user.raw_token, user_id=user_id, session_id=session_id, images=images)
 
-        return {'result': result, 'sessionEnded': session_ended, 'emotions': emotions.split(","), 'sessionId': session_id}
-    except exceptions.WrongImageSizeException as e:
-        logging.error(e)
+            return {'result': result, 'sessionEnded': session_ended, 'emotions': emotions.split(","), 'sessionId': session_id}
+        except exceptions.WrongImageSizeException as e:
+            logging.error(e)
 
-        return {'message': str(e), 'code': _invalid_properties}, 400
-    except exceptions.NoFaces as e:
-        logging.error(e)
+            return {'message': str(e), 'code': _invalid_properties}, 400
+        except exceptions.NoFaces as e:
+            logging.error(e)
 
-        return {"message": str(e), "code":_no_faces}, 400
-    except exceptions.UserDisabled as e:
-        logging.error(e)
+            return {"message": str(e), "code":_no_faces}, 400
+        except exceptions.UserDisabled as e:
+            logging.error(e)
 
-        return {'message': str(e), 'code': _user_disabled}, 403
-    except exceptions.SessionTimeOutException as e:
-        logging.error(e)
+            return {'message': str(e), 'code': _user_disabled}, 403
+        except exceptions.SessionTimeOutException as e:
+            logging.error(e)
 
-        return {'message': str(e), 'code': _session_timed_out}, 403
-    except exceptions.SessionNotFoundException as e:
-        logging.error(e)
+            return {'message': str(e), 'code': _session_timed_out}, 403
+        except exceptions.SessionNotFoundException as e:
+            logging.error(e)
 
-        return {'message': str(e), 'code': _session_not_found}, 404
-    except exceptions.NegativeRateLimitException as e:
-        logging.error(e)
+            return {'message': str(e), 'code': _session_not_found}, 404
+        except exceptions.NegativeRateLimitException as e:
+            logging.error(e)
 
-        return {'message': str(e), 'code': _rate_limit_negative_exceeded}, 429
-    except Exception as e:
-        logging.error(e, exc_info=e)
+            return {'message': str(e), 'code': _rate_limit_negative_exceeded}, 429
+        except Exception as e:
+            logging.error(e, exc_info=e)
 
-        return {"message":"oops, an error occured"}, 500
+            return {"message":"oops, an error occured"}, 500
 
 metricsauth = HTTPBasicAuth()
 @metricsauth.verify_password

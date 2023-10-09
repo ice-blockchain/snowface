@@ -183,10 +183,10 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
                 user=user
             )
         except UnauthorizedFromWebhook as e:
-            _delete_metadatas([upd["user_picture_id"]])
+            _delete_metadatas(user_id, [upd["user_picture_id"]])
             raise e
         except requests.RequestException as e:
-            _delete_metadatas([upd["user_picture_id"]])
+            _delete_metadatas(user_id, [upd["user_picture_id"]])
             raise e # goes to 5xx
 
 def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_pics: list):
