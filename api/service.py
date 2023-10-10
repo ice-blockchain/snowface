@@ -471,44 +471,37 @@ def _save_image(image, idx, user_id):
         _rollback_images_devide_modulo_15(user_id)
         raise e
 
-def _send_best_images(img_storage_path:str, similarity_server:str, token, user_id, best_images_indexes):
-    files = []
-    for img_idx in best_images_indexes:
-        file_path = f"{img_storage_path}{user_id}/{img_idx}{_picture_extension}"
-        files.append(('image', (f"{img_idx}{_picture_extension}", open(file_path, 'rb'), 'image/jpeg')))
-
-    response = requests.post(
-        url=f"{similarity_server[:-1] if similarity_server.endswith('/') else similarity_server}/v1w/face-auth/similarity/{user_id}",
-        files=files,
-        headers={"Authorization": f"Bearer {token}"}
-    )
-
+def _send_best_images(similarity_server:str, token, user_id, files):
+    try:
+        response = requests.post(
+            url=f"{similarity_server[:-1] if similarity_server.endswith('/') else similarity_server}/v1w/face-auth/similarity/{user_id}",
+            files=files,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=25
+        )
+    except requests.RequestException as e:
+        logging.info(f"Similarity check userID {user_id}: {str(e)}")
+        raise e
+    logging.info(f"Similarity check userID {user_id}: {response.status_code} {response.text}")
     return response.status_code == 200
 
 def _finish_session(usr, token):
     best_indexes = []
     for idx in np.argpartition(usr['best_pictures_score'], -current_app.config['TOTAL_BEST_PICTURES'])[-current_app.config['TOTAL_BEST_PICTURES']:]:
         best_indexes.append(str(idx))
-
-    with ThreadPoolExecutor(max_workers=_max_executor_workers) as executor:
-        futures = [
-            executor.submit(
-                _remove_not_best_user_images,
-                current_app.config['IMG_STORAGE_PATH'],
-                usr['user_id'],
-                best_indexes
-            ),
-            executor.submit(
-                _send_best_images,
-                current_app.config['IMG_STORAGE_PATH'],
-                current_app.config['SIMILARITY_SERVER'],
-                token, usr['user_id'],
-                best_indexes
-            )
-        ]
-
-        wait(futures)
-
+    files = []
+    for img_idx in best_indexes:
+        file_path = f"{current_app.config['IMG_STORAGE_PATH']}{usr['user_id']}/{img_idx}{_picture_extension}"
+        files.append(('image', (f"{img_idx}{_picture_extension}", open(file_path, 'rb'), 'image/jpeg')))
+    executor = current_app.extensions["snowfaceexecutor"]
+    futures = [
+        executor.submit(
+            _send_best_images,
+            current_app.config['SIMILARITY_SERVER'],
+            token, usr['user_id'],
+            files
+        )
+    ]
     _remove_user_images(user_id=usr['user_id'])
     _remove_session(user_id=usr['user_id'])
 
