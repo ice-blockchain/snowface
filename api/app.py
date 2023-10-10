@@ -10,10 +10,14 @@ from minio_uploader import _client_with_initialized_bucket
 from service import init_models
 from routes import init_rate_limiters
 import os
+from flask_executor import Executor
+
+executor = None
 
 def create_app():
     app = Flask(__name__)
     app.register_blueprint(blueprint)
+    executor = Executor(app, "snowface")
     app.config['LOGGING_LEVEL'] = os.environ.get('LOGGING_LEVEL','INFO')
     logging.basicConfig(level=app.config['LOGGING_LEVEL'], format="%(asctime)s.%(msecs)d %(levelname)s:%(name)s:PID:%(process)d %(message)s")
     jwt_secret = os.environ.get('JWT_SECRET')

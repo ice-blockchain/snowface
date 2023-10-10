@@ -10,4 +10,7 @@ def pre_request(worker, request):
         queued_time = q_header[0]
     if queued_time:
         latency = time.time() - queued_time
-        metrics.register_gunicorn_latency("/".join(request.path.split("/")[:-1]), latency)
+        userIdIdx = -1
+        if "/liveness/" in request.path:
+            userIdIdx = -2
+        metrics.register_gunicorn_latency("/".join(request.path.split("/")[:userIdIdx]), latency)
