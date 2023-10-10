@@ -48,6 +48,7 @@ _max_executor_workers = 2
 _images_count_per_call = 15
 _min_images_with_emotions_to_proceed = 1
 _time_format = '%Y-%m-%dT%H:%M:%S.%fZ%Z'
+_invalidated_session='00000000-0000-0000-0000-000000000000'
 _default_emotions_list = [
     ['anger', 'surprise', 'happiness', 'neutral'],
     ['contempt','sadness', 'fear'],
@@ -534,13 +535,26 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
             raise exceptions.UpsertException(f"can't update emotion sequence for user_id:{user_id}")
         return False, False, usr['emotions']
     model = DeepFace.build_model("Emotion")
-    awaited_score, scores, max_emotion, max_score, averages = _predict(
-        usr=usr,
-        model=model,
-        images=images,
-        now=now,
-        awaited_emotion = current_emotion,
-    )
+    try:
+        awaited_score, scores, max_emotion, max_score, averages = _predict(
+            usr=usr,
+            model=model,
+            images=images,
+            now=now,
+            awaited_emotion = current_emotion,
+        )
+    except exceptions.NoFaces as e:
+        _remove_user_images(user_id = user_id)
+        usr['session_id'] = _invalidated_session
+        if _update_emotions_and_best_score(
+                usr=usr,
+                emotions = usr['emotions'],
+                emotion_sequence=usr['emotion_sequence'],
+                best_score=usr['best_pictures_score'],
+                last_negative_request_at = usr['last_negative_request_at']
+        ) is False:
+            raise exceptions.UpsertException(f"can't invalidate session user_id:{user_id}")
+        raise e
     relative_score = awaited_score*100.0/max_score
     logging.info(f"[U:{user_id}][S:{session_id}] awaited {current_emotion}/{awaited_score} it is {relative_score} of ({max_emotion}/{max_score}=100)  < {current_app.config['TARGET_EMOTION_SCORE']} all:{averages}")
     if relative_score < current_app.config['TARGET_EMOTION_SCORE']:
