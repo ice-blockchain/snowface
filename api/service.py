@@ -106,8 +106,11 @@ def init_models():
         if samplePerson.status_code == 200:
             img = loadImageFromStream(io.BytesIO(samplePerson.content))
             if img is not None:
-                DeepFace.represent(img_path=img, detector_backend=_detector_high_quality, model_name=_model)
-                DeepFace.represent(img_path=img, detector_backend=_detector_high_quality, model_name=_model_fallback)
+                if current_app.config["MINIO_URI"]:
+                    DeepFace.represent(img_path=img, detector_backend=_detector_high_quality, model_name=_model)
+                    DeepFace.represent(img_path=img, detector_backend=_detector_high_quality, model_name=_model_fallback)
+                else:
+                    DeepFace.extract_faces(img_path=img,detector_backend=_detector_high_quality)
                 emotion.predict_multi_emotions(face_img_list=[img])
     except requests.RequestException as e:
         logging.error(e, exc_info=e)
