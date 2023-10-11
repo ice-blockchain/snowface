@@ -49,6 +49,7 @@ _images_count_per_call = 15
 _min_images_with_emotions_to_proceed = 1
 _time_format = '%Y-%m-%dT%H:%M:%S.%fZ%Z'
 _invalidated_session='00000000-0000-0000-0000-000000000000'
+_user_not_the_same = "USER_NOT_THE_SAME"
 _default_emotions_list = [
     ['anger', 'surprise', 'happiness', 'neutral'],
     ['contempt','sadness', 'fear'],
@@ -107,10 +108,10 @@ def init_models():
             img = loadImageFromStream(io.BytesIO(samplePerson.content))
             if img is not None:
                 if current_app.config["MINIO_URI"]:
-                    DeepFace.represent(img_path=img, detector_backend=_detector_high_quality, model_name=_model)
-                    DeepFace.represent(img_path=img, detector_backend=_detector_high_quality, model_name=_model_fallback)
+                    DeepFace.represent(img_path=img, detector_backend=_detector_high_quality, model_name=_model, enforce_detection=False)
+                    DeepFace.represent(img_path=img, detector_backend=_detector_high_quality, model_name=_model_fallback, enforce_detection=False)
                 else:
-                    DeepFace.extract_faces(img_path=img,detector_backend=_detector_high_quality)
+                    DeepFace.extract_faces(img_path=img,detector_backend=_detector_high_quality, enforce_detection=False)
                 emotion.predict_multi_emotions(face_img_list=[img])
     except requests.RequestException as e:
         logging.error(e, exc_info=e)
@@ -417,20 +418,13 @@ def _add_additional_emotion(usr):
 
 def _generate_best_scores(usr, current_emotions_list,scores, model, images_count, session_success):
     idx = int(images_count / _images_count_per_call)
-
+    if idx >= current_app.config["TARGET_EMOTION_COUNT"]: idx = current_app.config["TARGET_EMOTION_COUNT"] - 1
     neutral_idx = model.class_to_idx.get("neutral")
     neutral_scores = [s[neutral_idx]for s in scores]
     usr['best_pictures_score'][idx * _images_count_per_call:(idx+1)*_images_count_per_call] = neutral_scores
     usr['emotion_sequence'] = usr['emotion_sequence']+1
     if usr['emotion_sequence'] >= len(current_emotions_list) and (not session_success):
         usr['emotions'] = _add_additional_emotion(usr)
-    if _update_emotions_and_best_score(
-        usr=usr,
-        emotions = usr['emotions'],
-        emotion_sequence=usr['emotion_sequence'],
-        best_score=usr["best_pictures_score"]
-    ) is not True:
-        raise exceptions.UpsertException(f"can't update emotion sequence and best score for user_id:{usr['user_id']}")
     return usr['emotions']
 
 def _predict(usr, model, images, now, awaited_emotion):
@@ -484,11 +478,15 @@ def _send_best_images(similarity_server:str, token, user_id, files):
             timeout=25
         )
     except requests.RequestException as e:
-        logging.info(f"Similarity check userID {user_id}: {str(e)}")
+        logging.warning(f"Similarity check userID {user_id}: {str(e)}")
         raise e
-    logging.info(f"Similarity check userID {user_id}: {response.status_code} {response.text}")
-    return response.status_code == 200
-
+    if response.status_code == 200:
+        return True
+    else:
+        logging.warning(f"Similarity check userID {user_id}: {response.status_code} {response.text}")
+        if response.status_code == 400 and response.json()["code"] == _user_not_the_same:
+            return False
+    return True
 def _finish_session(usr, token):
     best_indexes = []
     for idx in np.argpartition(usr['best_pictures_score'], -current_app.config['TOTAL_BEST_PICTURES'])[-current_app.config['TOTAL_BEST_PICTURES']:]:
@@ -497,17 +495,20 @@ def _finish_session(usr, token):
     for img_idx in best_indexes:
         file_path = f"{current_app.config['IMG_STORAGE_PATH']}{usr['user_id']}/{img_idx}{_picture_extension}"
         files.append(('image', (f"{img_idx}{_picture_extension}", open(file_path, 'rb'), 'image/jpeg')))
-    executor = current_app.extensions["snowfaceexecutor"]
-    futures = [
-        executor.submit(
-            _send_best_images,
-            current_app.config['SIMILARITY_SERVER'],
-            token, usr['user_id'],
-            files
-        )
-    ]
-    _remove_user_images(user_id=usr['user_id'])
-    _remove_session(user_id=usr['user_id'])
+    # executor = current_app.extensions["snowfaceexecutor"]
+    # futures = [
+    #     executor.submit(
+    #         _send_best_images,
+    #         current_app.config['SIMILARITY_SERVER'],
+    #         token, usr['user_id'],
+    #         files
+    #     )
+    # ]
+    identity_match = _send_best_images(current_app.config['SIMILARITY_SERVER'], token,usr['user_id'], files)
+    if identity_match:
+        _remove_user_images(user_id=usr['user_id'])
+        _remove_session(user_id=usr['user_id'])
+    return identity_match
 
 def process_images(token: str, user_id: str, session_id: str, images:list):
     now = time.time_ns()
@@ -587,7 +588,7 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
             user_id=user_id,
             idx=idx + images_count
         )
-    session_success = _count_user_images(user_id) == _images_count_per_call * current_app.config['TARGET_EMOTION_COUNT']
+    session_success = _count_user_images(user_id) >= _images_count_per_call * current_app.config['TARGET_EMOTION_COUNT']
     session_ended = usr['emotion_sequence'] >= current_app.config['MAX_EMOTION_COUNT']
     emotions = _generate_best_scores(
         usr=usr,
@@ -597,14 +598,22 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
         images_count=images_count,
         session_success = session_success
     )
-
+    result = True
     if session_success:
         metrics.register_session_length(usr['emotion_sequence']+1)
-        _finish_session(usr, token)
-
-        return True, True, emotions
-
-    return True, session_ended, emotions
+        result = _finish_session(usr, token)
+        if not result:
+            usr['last_negative_request_at'] = now
+        session_ended = True
+    if (not result) or (not session_ended):
+        if _update_emotions_and_best_score(
+                usr=usr,
+                emotions = usr['emotions'],
+                emotion_sequence=usr['emotion_sequence'],
+                best_score=usr["best_pictures_score"]
+        ) is not True:
+            raise exceptions.UpsertException(f"can't update emotion sequence and best score for user_id:{usr['user_id']}")
+    return result, session_ended, emotions
 
 def delete_temporary_user_data(user_id:str):
     _remove_user_images(user_id = user_id)
