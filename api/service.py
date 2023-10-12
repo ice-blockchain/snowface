@@ -30,10 +30,9 @@ from PIL import Image
 import cv2
 
 import numpy as np, io, requests
-from deepface.commons import functions, distance
+from deepface.commons import distance
 from concurrent.futures import ThreadPoolExecutor, wait
 from deepface import DeepFace
-from deepface.commons import distance
 from minio_uploader import put_secondary_photo, put_primary_photo, get_primary_photo, delete_photos as _delete_photos
 import metrics
 import numpy as np
@@ -138,7 +137,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
         )[0]["embedding"])
     except ValueError:
         raise exceptions.NoFaces(f"No faces detected, userId: {user_id}")
-    threshold = distance.findThreshold(_model,_similarity_metric)
+    threshold = current_app.config['PRIMARY_PHOTO_SFACE_DISTANCE']
     similar_users, distances = _find_similar_users(user_id,md, threshold)
     if similar_users[0] != user_id:
         # make sure it is not a false positive, let's check other picture as well
@@ -166,7 +165,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
                 normalization="base",
                 align=True
             )
-            if res["verified"]:
+            if res["verified"] and res['distance'] <= current_app.config["PRIMARY_PHOTO_ARCFACE_DISTANCE"]:
                 disabled = _disable_user(now,user_id)
                 if disabled:
                     callback(
@@ -175,8 +174,8 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
                         secondary_md=None,
                         user={"disabled_at": now}
                     )
-                    logging.info(f"Face {user_id} is matching with user {similar_users[0]}, distance {distances[0]} {res['distance']} < {res['threshold']}")
-                    raise exceptions.UserDisabled(f"Face {user_id} is matching with user {similar_users[0]}, distance {distances[0]} {res['distance']} < {res['threshold']}")
+                    logging.info(f"Face {user_id} is matching with user {similar_users[0]}, distance {distances[0]} {res['distance']} < {threshold} {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
+                    raise exceptions.UserDisabled(f"Face {user_id} is matching with user {similar_users[0]}, distance {distances[0]} {res['distance']} < {threshold} {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
     url = put_primary_photo(user_id,photo_stream.stream)
     upd, rows = _set_primary_metadata(now, user_id, md, url)
     if rows > 0:
@@ -214,10 +213,11 @@ def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_
             normalization="base",
         )[0]["embedding"])
         euclidian_sface = euclidian
+        sface_threshold = threshold
         mdFallback, bestIndex, euclidian,threshold = extract_and_compare_metadatas(md_vector, pics,_model_fallback)
         if bestIndex == -1:
             metrics.register_similarity_failure(euclidian_sface,euclidian)
-            raise exceptions.NotSameUser(f"user mismatch for user_id {user_id}: distance is greater than {threshold}: {euclidian_sface} {euclidian}")
+            raise exceptions.NotSameUser(f"user mismatch for user_id {user_id}: distance is greater than {sface_threshold} {threshold}: {euclidian_sface} {euclidian}")
     url = put_secondary_photo(user_id,raw_pics[bestIndex].stream)
     prev_state = _get_secondary_metadata(user_id)
     upd, rows = _update_secondary_metadata(now,user_id,md[bestIndex], url)
@@ -250,10 +250,12 @@ def extract_and_compare_metadatas(user_reference_metadata: list, pics, model):
         ])
     except ValueError as e:
         raise exceptions.NoFaces("No faces detected")
-    threshold = distance.findThreshold(model,_similarity_metric)
+    threshold = _similarity_threshold(model)
     bestIndex, euclidian = compare_metadatas(metadata_to_compare, threshold)
     return metadata_to_compare,bestIndex, euclidian, threshold
 
+def _similarity_threshold(model: str):
+    return current_app.config[f"SIMILARITY_{model.upper()}_DISTANCE"]
 def compare_metadatas(metadatas: list, threshold: float):
     normalizedRefMetadata = metadatas.pop(0)
     distances = [distance.findEuclideanDistance(normalizedRefMetadata, md) for md in metadatas]
