@@ -9,10 +9,13 @@ import traceback
 path = "../img_align_celeba/"
 endpoint = "https://localhost:443"
 similarity_endpoint = "http://localhost:5000"
-workers = 16
-
+workers = 4
+from prometheus_client import Histogram, Counter, generate_latest, REGISTRY
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
+primary_photo_response_time = Histogram("primary_photo_response_time","primary_photo_response_time")
+similarity_response_time = Histogram("similarity_response_time","primary_photo_response_time")
+primary_photo_failures = Counter("primary_photo_failures", "primary_photo_failures")
+similarity_failures = Counter("similarity_failures", "similarity_failures")
 def upload_secondary(userData):
     if userData[0]%300 == 0:
         print("secondary",userData[0])
@@ -28,16 +31,22 @@ def upload_secondary(userData):
         i+=1
     similarityURL = f"{similarity_endpoint}/v1w/face-auth/similarity/{user}"
     t = time.time()
-    response = requests.post(
-        url=similarityURL,
-        files=to_send,
-        #headers={'Authorization': 'Bearer ' + token},
-        verify=False,
-    )
+    try:
+        with similarity_failures.time():
+            response = requests.post(
+                url=similarityURL,
+                files=to_send,
+                #headers={'Authorization': 'Bearer ' + token},
+                verify=False,
+            )
+    except Exception as e:
+        print(str(e))
+        raise e
     #print("secondary upload took", time.time()-t)
     if response.status_code != 200:
         if not "NO_FACE" in response.text:
             print(f"secondary for {user} failed with {response.status_code} {response.text}")
+            similarity_failures.inc()
         else:
             upload_secondary(userData)
 
@@ -50,17 +59,24 @@ def upload_primary(userData):
     to_send = [('image', (img, open(os.path.join(path, img), 'rb')))]
     primaryURL = f"{endpoint}/v1w/face-auth/primary_photo/{user}"
     t=time.time()
-    response = requests.post(
-        url=primaryURL,
-        files=to_send,
-        #headers={'Authorization': 'Bearer ' + token},
-        verify=False,
-    )
-    print("primary upload took ", time.time()-t)
+    try:
+        with primary_photo_response_time.time():
+            response = requests.post(
+                url=primaryURL,
+                files=to_send,
+                #headers={'Authorization': 'Bearer ' + token},
+                verify=False,
+            )
+    except Exception as e:
+        print(str(e))
+        raise e
     if response.status_code != 200:
         if not "NO_FACE" in response.text:
             print(f"primary for {user} failed with {response.status_code} {response.text}")
-        elif len(list(userData[1]['file'].iloc)) > 1: upload_primary(userData)
+            primary_photo_failures.inc()
+        elif len(list(userData[1]['file'].iloc)) > 1:
+            upload_primary(userData)
+    return response.status_code
 
 def load_data():
     identities = pd.read_csv(os.path.join(path,"identity_CelebA.txt"), names=["file", "identity"], header = None, sep=" ")
@@ -85,5 +101,7 @@ def call(fn):
 usrs = load_data()
 loop = asyncio.get_event_loop()
 loop.run_until_complete(call(upload_primary))
+generate_latest(REGISTRY)
 loop = asyncio.get_event_loop()
 loop.run_until_complete(call(upload_secondary))
+generate_latest(REGISTRY)

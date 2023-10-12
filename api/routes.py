@@ -151,20 +151,21 @@ def similar(current_user, user_id):
             bestIndex, euclidian, updateTime = service.check_similarity_and_update_secondary_photo(current_user, user_id, request.files.getlist("image"))
             return  {"userId":user_id, "bestIndex":bestIndex, "distance": euclidian, "secondaryPhotoUpdatedAt":updateTime}
         except exceptions.MetadataNotFound as e:
-            logging.error(e)
+            _log_error(current_user, e)
             return {"message": str(e), "code":_no_primary_metadata}, 400
         except exceptions.NotSameUser as e:
-            logging.error(e)
+            _log_error(current_user, e)
             return {"message": str(e), "code":_user_not_the_same}, 400
         except exceptions.NoFaces as e:
-            logging.error(e)
+            _log_error(current_user, e)
             return {"message": str(e), "code":_no_faces}, 400
         except webhook.UnauthorizedFromWebhook as e:
             return str(e), 401
         except Exception as e:
-            logging.error(e, exc_info=e)
+            _log_error(current_user, e, True)
             return {"message":"oops, an error occured"}, 500
-
+def _log_error(current_user: Token, e: Exception, unexpected = False):
+    logging.error(f"[U:{current_user.user_id}] "+str(e), exc_info=e if unexpected else None)
 @blueprint.route("/v1w/face-auth/primary_photo/<user_id>", methods=["POST"])
 @auth_required
 def primary_photo(current_user, user_id):
@@ -178,22 +179,22 @@ def primary_photo(current_user, user_id):
             service.set_primary_photo(current_user, user_id, request.files["image"])
             return ""
         except exceptions.NoFaces as e:
-            logging.error(e)
+            _log_error(current_user, e)
             if _primary_photo_rate_limiter_rate is not None:
                 _primary_photo_rate_limiter.hit(_primary_photo_rate_limiter_rate, user_id)
             return {"message": str(e), "code":_no_faces}, 400
         except exceptions.MetadataAlreadyExists as e:
-            logging.error(e)
+            _log_error(current_user, e)
             if _primary_photo_rate_limiter_rate is not None:
                 _primary_photo_rate_limiter.hit(_primary_photo_rate_limiter_rate, user_id)
             return {"message": str(e), "code":_already_uploaded}, 409
         except exceptions.UserDisabled as e:
-            logging.error(e)
+            _log_error(current_user, e)
             return {"message": str(e), "code":_user_disabled}, 403
         except webhook.UnauthorizedFromWebhook as e:
             return str(e), 401
         except Exception as e:
-            logging.error(e, exc_info=e)
+            _log_error(current_user, e, True)
 
             return {"message":"oops, an error occured"}, 500
 
@@ -209,12 +210,12 @@ def delete_photos(current_user: Token):
                 service.delete_temporary_user_data(current_user.user_id)
                 return service.proxy_delete(current_user)
         except exceptions.MetadataNotFound as e:
-            logging.error(e)
+            _log_error(current_user, e)
             return "", 204
         except webhook.UnauthorizedFromWebhook as e:
             return str(e), 401
         except Exception as e:
-            logging.error(e, exc_info=e)
+            _log_error(current_user, e, True)
             return {"message":"oops, an error occured"}, 500
 @blueprint.route("/v1r/face-auth/status/<user_id>", methods=["GET"])
 @auth_required
@@ -224,7 +225,7 @@ def user_status(current_user, user_id):
             status = service.get_status(user_id)
             return status
         except Exception as e:
-            logging.error(e, exc_info=e)
+            _log_error(current_user, e, True)
             return {"message":"oops, an error occured"}, 500
 
 @blueprint.route("/v1w/face-auth/emotions/<user_id>", methods=["POST"])
@@ -236,19 +237,19 @@ def emotions(current_user, user_id):
 
             return {'emotions': emotions_list, 'sessionId': session_id, 'sessionExpiredAt': session_expired_at}
         except exceptions.UserDisabled as e:
-            logging.error(e)
+            _log_error(current_user, e)
 
             return {'message': str(e), 'code': _user_disabled}, 403
         except exceptions.RateLimitException as e:
-            logging.error(e)
+            _log_error(current_user, e)
 
             return {'message': str(e), 'code': _rate_limit_exceeded}, 429
         except exceptions.NegativeRateLimitException as e:
-            logging.error(e)
+            _log_error(current_user, e)
 
             return {'message': str(e), 'code': _rate_limit_negative_exceeded}, 429
         except Exception as e:
-            logging.error(e)
+            _log_error(current_user, e)
 
             return {"message":"oops, an error occured"}, 500
 
@@ -270,31 +271,31 @@ def liveness(current_user, user_id, session_id):
 
             return {'result': result, 'sessionEnded': session_ended, 'emotions': emotions.split(","), 'sessionId': session_id}
         except exceptions.WrongImageSizeException as e:
-            logging.error(e)
+            _log_error(current_user, e)
 
             return {'message': str(e), 'code': _invalid_properties}, 400
         except exceptions.NoFaces as e:
-            logging.error(e)
+            _log_error(current_user, e)
 
             return {"message": str(e), "code":_no_faces}, 400
         except exceptions.UserDisabled as e:
-            logging.error(e)
+            _log_error(current_user, e)
 
             return {'message': str(e), 'code': _user_disabled}, 403
         except exceptions.SessionTimeOutException as e:
-            logging.error(e)
+            _log_error(current_user, e)
 
             return {'message': str(e), 'code': _session_timed_out}, 403
         except exceptions.SessionNotFoundException as e:
-            logging.error(e)
+            _log_error(current_user, e)
 
             return {'message': str(e), 'code': _session_not_found}, 404
         except exceptions.NegativeRateLimitException as e:
-            logging.error(e)
+            _log_error(current_user, e)
 
             return {'message': str(e), 'code': _rate_limit_negative_exceeded}, 429
         except Exception as e:
-            logging.error(e, exc_info=e)
+            _log_error(current_user, e, True)
 
             return {"message":"oops, an error occured"}, 500
 

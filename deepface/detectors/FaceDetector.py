@@ -12,11 +12,9 @@ from deepface.detectors import (
     YoloWrapper,
     YunetWrapper,
 )
-
+import threading
 
 def build_model(detector_backend):
-    global face_detector_obj  # singleton design pattern
-
     backends = {
         "opencv": OpenCvWrapper.build_model,
         "ssd": SsdWrapper.build_model,
@@ -27,21 +25,21 @@ def build_model(detector_backend):
         "yolov8": YoloWrapper.build_model,
         "yunet": YunetWrapper.build_model,
     }
+    local = threading.local()
+    if getattr(local, 'face_detector_obj', None) is None:
+        local.face_detector_obj = {}
 
-    if not "face_detector_obj" in globals():
-        face_detector_obj = {}
-
-    built_models = list(face_detector_obj.keys())
+    built_models = list(local.face_detector_obj.keys())
     if detector_backend not in built_models:
         face_detector = backends.get(detector_backend)
 
         if face_detector:
             face_detector = face_detector()
-            face_detector_obj[detector_backend] = face_detector
+            local.face_detector_obj[detector_backend] = face_detector
         else:
             raise ValueError("invalid detector_backend passed - " + detector_backend)
 
-    return face_detector_obj[detector_backend]
+    return local.face_detector_obj[detector_backend]
 
 
 def detect_face(face_detector, detector_backend, img, align=True):

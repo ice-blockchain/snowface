@@ -7,11 +7,11 @@ from routes import blueprint
 from milvus import init_milvus, close_milvus
 from auth import _get_firebase_client
 from minio_uploader import _client_with_initialized_bucket
-from service import init_models
+from service import init_models, _model, _model_fallback, _similarity_metric
 from routes import init_rate_limiters
 import os
 from flask_executor import Executor
-
+from deepface.commons.distance import findThreshold
 executor = None
 
 def create_app():
@@ -44,6 +44,9 @@ def create_app():
     app.config['METADATA_UPDATED_CALLBACK_URL'] = os.environ.get("METADATA_UPDATED_CALLBACK_URL")
     app.config['METADATA_UPDATED_SECRET'] = os.environ.get("METADATA_UPDATED_SECRET","").replace("\n","")
     app.config['PRIMARY_PHOTO_ERROR_LIMIT'] = os.environ.get("PRIMARY_PHOTO_ERROR_LIMIT")
+    app.config["PRIMARY_PHOTO_SFACE_DISTANCE"] = float(os.environ.get('PRIMARY_PHOTO_SFACE_DISTANCE', findThreshold(_model,_similarity_metric)))
+    app.config["PRIMARY_PHOTO_ARCFACE_DISTANCE"] = float(os.environ.get('PRIMARY_PHOTO_ARCFACE_DISTANCE', findThreshold(_model_fallback,_similarity_metric)))
+
     init_rate_limiters(app)
 
     if not app.config['METADATA_UPDATED_SECRET'] and app.config['METADATA_UPDATED_CALLBACK_URL']:
@@ -52,6 +55,8 @@ def create_app():
     app.config['LIMIT_RATE'] = int(os.environ.get('LIMIT_RATE', 60)) * int(1e9)
     app.config['LIMIT_RATE_NEGATIVE'] = int(os.environ.get('LIMIT_RATE_NEGATIVE', 1)) * int(1e9)
     app.config['SIMILARITY_SERVER'] = os.environ.get('SIMILARITY_SERVER')
+    app.config["SIMILARITY_SFACE_DISTANCE"] = float(os.environ.get('SIMILARITY_SFACE_DISTANCE', findThreshold(_model,_similarity_metric)))
+    app.config["SIMILARITY_ARCFACE_DISTANCE"] = float(os.environ.get('SIMILARITY_ARCFACE_DISTANCE', findThreshold(_model_fallback,_similarity_metric)))
     app.config['TOTAL_BEST_PICTURES'] = int(os.environ.get('TOTAL_BEST_PICTURES', 7))
     app.config['MAX_EMOTION_COUNT'] = int(os.environ.get('MAX_EMOTION_COUNT', 10))
     app.config['TARGET_EMOTION_COUNT'] = int(os.environ.get('TARGET_EMOTION_COUNT', 3))
