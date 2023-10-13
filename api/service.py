@@ -438,7 +438,7 @@ def _predict(usr, model, images, now, awaited_emotion):
             raise exceptions.WrongImageSizeException(f"wrong image size for user:{usr['user_id']}, session:{usr['session_id']}")
 
         face_img_list.append(loaded_image)
-    try: DeepFace.extract_faces(face_img_list[0], detector_backend=_detector_low_quality, enforce_detection=True)
+    try: DeepFace.extract_faces(face_img_list[1+int(len(face_img_list)/2)], detector_backend=_detector_low_quality, enforce_detection=True)
     except ValueError as e:
         raise exceptions.NoFaces(f"No faces detected, userId: {usr['user_id']}")
     awaited_idx = model.class_to_idx[awaited_emotion]
