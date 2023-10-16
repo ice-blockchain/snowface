@@ -4,6 +4,7 @@ from flask import g
 import os
 from pymilvus import CollectionSchema, FieldSchema, DataType, utility, connections, Collection, Milvus, MilvusException
 from pymilvus.client.types import LoadState
+from pymilvus.exceptions import IndexNotExistException
 import numpy as np
 from flask import current_app
 _conn_prefix = "snowface-"+str(os.getpid())
@@ -13,12 +14,18 @@ _users_collection = None
 _picture_primary = 0
 _picture_secondary = 1
 
+_default_user = 'root'
+_default_password = 'Milvus'
+
 def connect_milvus():
+    uri = os.environ.get('MILVUS_URI')
+    usr = os.environ.get('MILVUS_USER', _default_user)
+    passw = os.environ.get('MILVUS_PASSWORD', _default_password)
     connections.connect(
         alias=_conn_prefix,
-        user=current_app.config["MILVUS_USER"],
-        password=current_app.config["MILVUS_PASSWORD"],
-        uri=current_app.config['MILVUS_URI']
+        user=usr,
+        password=passw,
+        uri=uri
     )
 
 def init_milvus():
@@ -31,10 +38,15 @@ def close_milvus():
 def on_exit(arbiter):
     connections.disconnect(alias="default")
 
-def init_collection(name, create_fn):
+def init_collection(name, create_fn, extra_indexes = None):
     db = None
     if not utility.has_collection(name, using=_conn_prefix):
         db = create_fn(name)
+        if extra_indexes:
+            for ind_field in extra_indexes.keys():
+                try: index = db.index(ind_field)
+                except IndexNotExistException:
+                    extra_indexes.get(ind_field, lambda x: None)(db)
         try: db.load()
         except MilvusException as e:
             if e.code == 5:
@@ -42,6 +54,11 @@ def init_collection(name, create_fn):
                 db.load()
     else:
         db = Collection(name=name, using=_conn_prefix)
+        if extra_indexes:
+            for ind_field in extra_indexes.keys():
+                index = [idx for idx in db.indexes if idx.field_name == ind_field]
+                if len(index) == 0:
+                    extra_indexes.get(ind_field, lambda x: None)(db)
         try: db.load()
         except MilvusException as e:
             if e.code == 5:
@@ -50,7 +67,11 @@ def init_collection(name, create_fn):
     return db
 
 def init_schema():
-    _users_collection = init_collection("users", create_users_collection)
+    _users_collection = init_collection("users", create_users_collection, extra_indexes={
+        "session_started_at": lambda collection:     collection.create_index(
+            field_name="session_started_at"
+        )
+    })
     _faces_collection = init_collection("faces", create_faces_collection)
 
 def create_users_collection(name):
@@ -319,6 +340,18 @@ def get_user(user_id: str, search_growing = True):
         return None
 
     return res[0]
+def get_expired_sessions(duration):
+    users = get_users_collection()
+    expired = time.time_ns() - duration
+    res = users.query(
+        expr = f"session_started_at < {expired}",
+        offset = 0,
+        limit = 16384,
+        output_fields = ["user_id", "session_id", "disabled_at", "last_negative_request_at"],
+        ignore_growing = False,
+        consistency_level = "Bounded"
+    )
+    return res
 
 def remove_session(user_id: str):
     users = get_users_collection()

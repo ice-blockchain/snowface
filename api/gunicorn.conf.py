@@ -1,6 +1,9 @@
 from prometheus_client import multiprocess
-import time
+import time, os
 import metrics
+from service import emotions_cleanup, _default_session_duration
+from apscheduler.schedulers.background import BackgroundScheduler
+
 def worker_exit(server, worker):
     multiprocess.mark_process_dead(worker.pid)
 def pre_request(worker, request):
@@ -14,3 +17,14 @@ def pre_request(worker, request):
         if "/liveness/" in request.path:
             userIdIdx = -2
         metrics.register_gunicorn_latency("/".join(request.path.split("/")[:userIdIdx]), latency)
+
+scheduler = BackgroundScheduler()
+def when_ready(server):
+    global scheduler
+    if os.environ.get('IMG_STORAGE_PATH'):
+        scheduler.add_job(
+            id = "emotions_cleanup",
+            func=emotions_cleanup,
+            trigger="interval", seconds = 60,
+        )
+        scheduler.start()

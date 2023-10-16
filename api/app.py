@@ -4,10 +4,10 @@ import logging
 from flask import Flask
 from routes import blueprint
 
-from milvus import init_milvus, close_milvus
+from milvus import init_milvus, close_milvus, _default_user, _default_password
 from auth import _get_firebase_client
 from minio_uploader import _client_with_initialized_bucket
-from service import init_models, _model, _model_fallback, _similarity_metric
+from service import init_models, _model, _model_fallback, _similarity_metric, _default_session_duration
 from routes import init_rate_limiters
 import os
 from flask_executor import Executor
@@ -32,8 +32,8 @@ def create_app():
     if not firebase_file_content:
         raise Exception("failed to init firebase auth: GOOGLE_APPLICATION_CREDENTIALS not set")
     app.config['MILVUS_URI'] = os.environ.get('MILVUS_URI')
-    app.config['MILVUS_USER'] = os.environ.get('MILVUS_USER', 'root')
-    app.config['MILVUS_PASSWORD'] = os.environ.get('MILVUS_PASSWORD', 'Milvus')
+    app.config['MILVUS_USER'] = os.environ.get('MILVUS_USER', _default_user)
+    app.config['MILVUS_PASSWORD'] = os.environ.get('MILVUS_PASSWORD', _default_password)
 
     app.config['MINIO_URI'] = os.environ.get('MINIO_URI')
     app.config['MINIO_ACCESS_KEY'] = os.environ.get('MINIO_ACCESS_KEY','minioadmin')
@@ -51,7 +51,7 @@ def create_app():
 
     if not app.config['METADATA_UPDATED_SECRET'] and app.config['METADATA_UPDATED_CALLBACK_URL']:
         raise Exception("METADATA_UPDATED_SECRET was not set")
-    app.config['SESSION_DURATION'] = int(os.environ.get('SESSION_DURATION', 600)) * int(1e9)
+    app.config['SESSION_DURATION'] = int(os.environ.get('SESSION_DURATION', _default_session_duration)) * int(1e9)
     app.config['LIMIT_RATE'] = int(os.environ.get('LIMIT_RATE', 60)) * int(1e9)
     app.config['LIMIT_RATE_NEGATIVE'] = int(os.environ.get('LIMIT_RATE_NEGATIVE', 1)) * int(1e9)
     app.config['SIMILARITY_SERVER'] = os.environ.get('SIMILARITY_SERVER')
