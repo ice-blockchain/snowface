@@ -147,6 +147,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
         if secondary_md:
             bestIndex, euclidian = compare_metadatas([secondary_md["face_metadata"],md], threshold)
             if bestIndex != -1 and _disable_user(now, user_id):
+                metrics.register_disabled_user(min(euclidian,distances[0]), -1)
                 callback(
                     current_user=current_user,
                     primary_md=None,
@@ -170,6 +171,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
             if res["verified"] and res['distance'] <= current_app.config["PRIMARY_PHOTO_ARCFACE_DISTANCE"]:
                 disabled = _disable_user(now,user_id)
                 if disabled:
+                    metrics.register_disabled_user(distances[0], res['distance'])
                     callback(
                         current_user=current_user,
                         primary_md=None,

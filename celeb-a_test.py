@@ -32,7 +32,7 @@ def upload_secondary(userData):
     similarityURL = f"{similarity_endpoint}/v1w/face-auth/similarity/{user}"
     t = time.time()
     try:
-        with similarity_failures.time():
+        with similarity_response_time.time():
             response = requests.post(
                 url=similarityURL,
                 files=to_send,
@@ -75,7 +75,10 @@ def upload_primary(userData):
             print(f"primary for {user} failed with {response.status_code} {response.text}")
             primary_photo_failures.inc()
         elif len(list(userData[1]['file'].iloc)) > 1:
-            upload_primary(userData)
+            try: upload_primary(userData)
+            except RecursionError as e:
+                print(user, str(e))
+                return 0
     return response.status_code
 
 def load_data():
@@ -101,7 +104,7 @@ def call(fn):
 usrs = load_data()
 loop = asyncio.get_event_loop()
 loop.run_until_complete(call(upload_primary))
-generate_latest(REGISTRY)
+print(str(generate_latest(REGISTRY)))
 loop = asyncio.get_event_loop()
 loop.run_until_complete(call(upload_secondary))
-generate_latest(REGISTRY)
+print(str(generate_latest(REGISTRY)))
