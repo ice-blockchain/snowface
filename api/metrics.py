@@ -19,8 +19,10 @@ _session_length = None
 _gunicorn_queue = Histogram("gunicorn_queue_request_time", "Time per request spent in queue", labelnames=["path"])
 REQUEST_TIME = Histogram('request_processing_seconds', 'Time spent processing request', labelnames=["path"])
 
-_similarity_failure_distance_sface = Histogram("similarity_failure_distance_sface", "Euclidian (L2) distances of faces between primary users photo and failed secondary (for primary model: sface)", buckets=(1.05,1.1,1.15,1.2,1.3,1.5,1.75,2.0))
-_similarity_failure_distance_arcface = Histogram("similarity_failure_distance_arcface", "Euclidian (L2) distances of faces between primary users photo and failed secondary (for fallback model: arcface)", buckets=(1.1,1.15,1.2,1.3,1.5,1.75,2.0))
+_similarity_failure_distance_sface = Histogram("similarity_failure_distance_sface", "Euclidian (L2) distances of faces between primary users photo and failed secondary (for primary model: sface)", buckets=(1.05,1.1,1.15,1.2,1.25,1.3,1.5,1.75,2.0))
+_similarity_failure_distance_arcface = Histogram("similarity_failure_distance_arcface", "Euclidian (L2) distances of faces between primary users photo and failed secondary (for fallback model: arcface)", buckets=(1.1,1.15,1.2,1.25,1.3,1.5,1.75,2.0))
+_disabled_user_similarity_sface = Histogram("disabled_user_similarity_sface", "Euclidian (L2) distances of faces between most similar user and disabled one (for primary model: sface)", buckets=(0.1,0.2,0.3,0.4,0.5,0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95,1.0,1.06))
+_disabled_user_similarity_arcface = Histogram("disabled_user_similarity_arcface", "Euclidian (L2) distances of faces between most similar user and disabled one (for fallback model: arcface)", buckets=(0.1,0.2,0.3,0.4,0.5,0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95,1.0,1.05,1.1,1.15))
 def register_emotion_success(model: HSEmotionRecognizer, emotion: str, scores_by_frame: list, averages: dict):
     _emotions_success.labels(expected_emotion=emotion).inc()
     _update_frames(model, emotion,scores_by_frame, averages)
@@ -48,3 +50,7 @@ def _update_frames(model, emotion, scores_by_frame, averages):
 def register_similarity_failure(sface_distance, arcface_distance):
     _similarity_failure_distance_sface.observe(sface_distance)
     _similarity_failure_distance_arcface.observe(arcface_distance)
+def register_disabled_user(sface_distance, arcface_distance):
+    _disabled_user_similarity_sface.observe(sface_distance)
+    if arcface_distance != -1:
+        _disabled_user_similarity_arcface.observe(arcface_distance)

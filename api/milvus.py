@@ -44,8 +44,8 @@ def init_collection(name, create_fn, extra_indexes = None):
         db = create_fn(name)
         if extra_indexes:
             for ind_field in extra_indexes.keys():
-                try: index = db.index(ind_field)
-                except IndexNotExistException:
+                index = [idx for idx in db.indexes if idx.field_name == ind_field]
+                if len(index) == 0:
                     extra_indexes.get(ind_field, lambda x: None)(db)
         try: db.load()
         except MilvusException as e:
