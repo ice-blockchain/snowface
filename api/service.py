@@ -24,7 +24,8 @@ from milvus import (
     update_emotions_and_best_score         as _update_emotions_and_best_score,
     remove_session                         as _remove_session,
     update_last_negative_request_at        as _update_last_negative_request_at,
-    get_users_collection                   as _get_users_collection
+    get_users_collection                   as _get_users_collection,
+    get_expired_sessions                   as _get_expired_sessions
 )
 from PIL import Image
 import cv2
@@ -54,6 +55,7 @@ _default_emotions_list = [
     ['contempt','sadness', 'fear'],
     ['disgust']
 ]
+_default_session_duration = 600
 
 def represent(img_path, model_name, detector_backend, enforce_detection, align):
     result = {}
@@ -296,10 +298,12 @@ def get_status(user_id: str):
     }
 
 def _count_user_images(user_id):
-    return len(glob.glob(f"{current_app.config['IMG_STORAGE_PATH']}{user_id}/*{_picture_extension}"))
+    p = os.environ.get('IMG_STORAGE_PATH')
+    p = p if p.endswith("/") else p+"/"
+    return len(glob.glob(f"{p}{user_id}/*{_picture_extension}"))
 
 def _remove_user_images(user_id):
-    dirname = f"{current_app.config['IMG_STORAGE_PATH']}{user_id}"
+    dirname = f"{os.environ.get('IMG_STORAGE_PATH')}{user_id}"
     if os.path.isdir(dirname) == False:
         return
 
@@ -654,3 +658,14 @@ def proxy_delete(current_user):
         headers={"Authorization": f"Bearer {current_user.raw_token}", "X-Account-Metadata": current_user.metadata}
     )
     return response.content, response.status_code
+
+def emotions_cleanup():
+    duration = int(os.environ.get('SESSION_DURATION', _default_session_duration))*int(1e9)
+    sessions = _get_expired_sessions(duration)
+    logging.debug(f"cleaning outdated sessions ({len(sessions)})...")
+    for session in sessions:
+        not_disabled = (session["disabled_at"] is not None and session["disabled_at"] == 0)
+        not_rate_limited = (session["last_negative_request_at"]  is not None and session["last_negative_request_at"] == 0)
+        if not_disabled and not_rate_limited:
+            _remove_session(session["user_id"])
+        _remove_user_images(session["user_id"])
