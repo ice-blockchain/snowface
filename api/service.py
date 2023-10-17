@@ -306,7 +306,9 @@ def _count_user_images(user_id):
     return len(glob.glob(f"{p}{user_id}/*{_picture_extension}"))
 
 def _remove_user_images(user_id):
-    dirname = f"{os.environ.get('IMG_STORAGE_PATH')}{user_id}"
+    p = os.environ.get('IMG_STORAGE_PATH')
+    p = p if p.endswith("/") else p+"/"
+    dirname = f"{p}{user_id}"
     if os.path.isdir(dirname) == False:
         return
 
