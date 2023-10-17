@@ -183,6 +183,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
     url = put_primary_photo(user_id,photo_stream.stream)
     upd, rows = _set_primary_metadata(now, user_id, md, url)
     if rows > 0:
+        metrics.register_primary_photo_uploaded()
         try:
             callback(
                 current_user=current_user,
@@ -574,6 +575,7 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
         usr['emotion_sequence'] = usr['emotion_sequence']+1
         session_ended = usr['emotion_sequence'] >= current_app.config['MAX_EMOTION_COUNT']
         if session_ended:
+            metrics.register_session_failure()
             usr['last_negative_request_at'] = now
         usr['best_pictures_score'][0] = usr['emotion_sequence']
         if usr['emotion_sequence'] >= len(current_emotions_list):
