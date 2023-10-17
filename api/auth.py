@@ -84,7 +84,7 @@ def _parse_firebase(token):
     return Token(
         token,
         jwt_data["uid"],
-        jwt_data["email"],
+        jwt_data.get("email",""),
         jwt_data.get("role",""),
         "firebase"
     )

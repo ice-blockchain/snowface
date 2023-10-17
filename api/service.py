@@ -626,15 +626,18 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
 def delete_temporary_user_data(user_id:str):
     _remove_user_images(user_id = user_id)
     _remove_session(user_id)
-def delete_user_photos_and_metadata(current_user):
-    main, secondary, errs = _delete_photos(current_user.user_id)
+def delete_user_photos_and_metadata(current_user, user_id = ""):
+    force_user_id = user_id
+    if not user_id:
+        user_id = current_user.user_id
+    main, secondary, errs = _delete_photos(user_id)
     if len(errs) > 0:
         raise Exception(str(errs))
-    main_md, secondary_md, deleted_mds = _delete_metadatas(current_user.user_id, [f"{current_user.user_id}~0", f"{current_user.user_id}~1"])
+    main_md, secondary_md, deleted_mds = _delete_metadatas(user_id, [f"{user_id}~0", f"{user_id}~1"])
     if deleted_mds == 0:
-        raise exceptions.MetadataNotFound(f"face metadata for userId {current_user.user_id} was not deleted")
+        raise exceptions.MetadataNotFound(f"face metadata for userId {user_id} was not deleted")
     try:
-        callback(current_user,None,None,None)
+        callback(current_user,None,None,None, user_id = force_user_id)
     except UnauthorizedFromWebhook as e:
          _rollback_deletion(current_user, main, secondary, main_md, secondary_md)
          raise e
@@ -671,3 +674,12 @@ def emotions_cleanup():
         if not_disabled and not_rate_limited:
             _remove_session(session["user_id"])
         _remove_user_images(session["user_id"])
+
+def reenable_user(current_user, user_id: str, duplicated_face: str):
+    _remove_session(user_id)
+    primary = _get_primary_metadata(user_id, False)
+    secondary = _get_secondary_metadata(user_id)
+    callback(current_user,primary,secondary,None, user_id=user_id)
+    if duplicated_face:
+        try: delete_user_photos_and_metadata(current_user, duplicated_face)
+        except exceptions.MetadataNotFound as e: pass

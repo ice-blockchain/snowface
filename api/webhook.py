@@ -16,7 +16,7 @@ def _log(r):
                       interval = 0.1,
                       max_tries = 15
                       )
-def callback(current_user, primary_md, secondary_md, user):
+def callback(current_user, primary_md, secondary_md, user, user_id = ""):
     time_format = '%Y-%m-%dT%H:%M:%S.%fZ%Z'
     url = current_app.config['METADATA_UPDATED_CALLBACK_URL']
     if not url:
@@ -32,7 +32,8 @@ def callback(current_user, primary_md, secondary_md, user):
     webhook_result = requests.post(url=url, headers={
         "Authorization": f"Bearer {current_user.raw_token}",
         "X-Account-Metadata": current_user.metadata,
-        "X-API-Key": current_app.config["METADATA_UPDATED_SECRET"]
+        "X-API-Key": current_app.config["METADATA_UPDATED_SECRET"],
+        "X-User-ID": user_id
     }, json={"lastUpdatedAt":lastUpdated, "disabled": disabled}, verify=False)
     try:
         webhook_result.raise_for_status()

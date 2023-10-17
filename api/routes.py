@@ -299,6 +299,28 @@ def liveness(current_user, user_id, session_id):
 
             return {"message":"oops, an error occured"}, 500
 
+@blueprint.route("/v1w/face-auth/enable", methods=["POST"])
+@auth_required
+def enable_user(current_user: Token):
+    if current_user.role != "admin":
+        return {'message': f'insufficient role: "{current_user.role}"'}, 403
+    data = request.get_json(force=True)
+    if data is None:
+        return {"message":"invalid json"}, 422
+    user_id = data.get("userId",None)
+    if not user_id:
+        return {"message":"userId is missing"}, 422
+    duplicated_face = data.get("duplicatedFace",None)
+    try:
+        service.reenable_user(current_user, user_id, duplicated_face)
+        return "", 200
+    except webhook.UnauthorizedFromWebhook as e:
+        return str(e), 401
+    except Exception as e:
+        _log_error(current_user, e, True)
+
+        return {"message": str(e)}, 500
+
 metricsauth = HTTPBasicAuth()
 @metricsauth.verify_password
 def verify_password(username, password):
