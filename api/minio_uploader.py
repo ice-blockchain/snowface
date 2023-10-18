@@ -48,6 +48,8 @@ def put_primary_photo(user_id: str, photo_content):
 
 def get_primary_photo(user_id: str):
     return get_photo(user_id, _picture_primary)
+def get_secondary_photo(user_id: str):
+    return get_photo(user_id, _picture_secondary)
 def put_secondary_photo(user_id: str, photo_content):
     return put_proto(user_id, _picture_secondary, photo_content)
 

@@ -7,7 +7,7 @@ import time
 import pandas as pd
 import traceback
 path = "../img_align_celeba/"
-endpoint = "https://localhost:443"
+endpoint = "http://localhost:5000"
 similarity_endpoint = "http://localhost:5000"
 workers = 4
 from prometheus_client import Histogram, Counter, generate_latest, REGISTRY
@@ -85,6 +85,9 @@ def load_data():
     identities = pd.read_csv(os.path.join(path,"identity_CelebA.txt"), names=["file", "identity"], header = None, sep=" ")
     gr = identities.groupby(by='identity')
     return gr
+def upload_both(userData):
+    upload_primary(userData)
+    upload_secondary(userData)
 
 @asyncio.coroutine
 def call(fn):
@@ -103,8 +106,8 @@ def call(fn):
 
 usrs = load_data()
 loop = asyncio.get_event_loop()
-loop.run_until_complete(call(upload_primary))
+loop.run_until_complete(call(upload_both))
 print(str(generate_latest(REGISTRY)))
-loop = asyncio.get_event_loop()
-loop.run_until_complete(call(upload_secondary))
-print(str(generate_latest(REGISTRY)))
+# loop = asyncio.get_event_loop()
+# loop.run_until_complete(call(upload_secondary))
+# print(str(generate_latest(REGISTRY)))
