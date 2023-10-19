@@ -19,7 +19,7 @@ from milvus import (
     set_primary_metadata                   as _set_primary_metadata,
     delete_metadatas                        as _delete_metadatas,
     update_user                            as _update_user,
-    disable_user                           as _disable_user,
+    disable_user                           as milvus_disable_user,
     get_user                               as _get_user,
     update_emotions_and_best_score         as _update_emotions_and_best_score,
     remove_session                         as _remove_session,
@@ -34,7 +34,10 @@ import numpy as np, io, requests
 from deepface.commons import distance
 from concurrent.futures import ThreadPoolExecutor, wait
 from deepface import DeepFace
-from minio_uploader import put_secondary_photo, put_primary_photo, get_primary_photo, delete_photos as _delete_photos
+from minio_uploader import (put_secondary_photo, put_primary_photo, get_primary_photo,
+    delete_photos as _delete_photos,
+    put_disabled_photo as _put_disable_photo
+)
 import metrics
 import numpy as np
 
@@ -146,7 +149,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
         secondary_md = _get_secondary_metadata(similar_users[0])
         if secondary_md:
             bestIndex, euclidian = compare_metadatas([secondary_md["face_metadata"],md], threshold)
-            if bestIndex != -1 and _disable_user(now, user_id):
+            if bestIndex != -1 and _disable_user(now, user_id, photo_content=photo_stream.stream):
                 metrics.register_disabled_user(min(euclidian,distances[0]), -1)
                 callback(
                     current_user=current_user,
@@ -169,7 +172,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
                 align=True
             )
             if res["verified"] and res['distance'] <= current_app.config["PRIMARY_PHOTO_ARCFACE_DISTANCE"]:
-                disabled = _disable_user(now,user_id)
+                disabled = _disable_user(now,user_id, photo_content=photo_stream.stream)
                 if disabled:
                     metrics.register_disabled_user(distances[0], res['distance'])
                     callback(
@@ -197,6 +200,11 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
         except requests.RequestException as e:
             _delete_metadatas(user_id, [upd["user_picture_id"]])
             raise e # goes to 5xx
+
+def _disable_user(now, user_id, photo_content):
+    _put_disable_photo(user_id,photo_content)
+    return milvus_disable_user(now,user_id)
+
 
 def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_pics: list):
     now = time.time_ns()
