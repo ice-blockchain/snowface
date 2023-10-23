@@ -34,8 +34,8 @@ import numpy as np, io, requests
 from deepface.commons import distance
 from concurrent.futures import ThreadPoolExecutor, wait
 from deepface import DeepFace
-from minio_uploader import (put_secondary_photo, put_primary_photo, get_primary_photo,
-    delete_photos as _delete_photos,
+from minio_uploader import (put_secondary_photo, put_primary_photo, get_primary_photo, get_secondary_photo,
+                            delete_photos as _delete_photos,
     put_disabled_photo as _put_disable_photo
 )
 import metrics
@@ -149,16 +149,52 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
         secondary_md = _get_secondary_metadata(similar_users[0])
         if secondary_md:
             bestIndex, euclidian = compare_metadatas([secondary_md["face_metadata"],md], threshold)
-            if bestIndex != -1 and _disable_user(now, user_id, photo_content=photo_stream.stream):
-                metrics.register_disabled_user(min(euclidian,distances[0]), -1)
-                callback(
-                    current_user=current_user,
-                    primary_md=None,
-                    secondary_md=None,
-                    user={"disabled_at": now}
+            if bestIndex != -1:
+                simiar_user_picture = get_primary_photo(similar_users[0])
+                res = DeepFace.verify(
+                    img1_path=img,
+                    img2_path=loadImageFromStream(io.BytesIO(simiar_user_picture)),
+                    detector_backend=_detector_high_quality,
+                    model_name=_model_fallback,
+                    distance_metric=_similarity_metric,
+                    normalization="base",
+                    align=True
                 )
-                logging.info(f"Face {user_id} is matching with user {similar_users[0]}, distance {distances[0]} {euclidian} < {threshold}")
-                raise exceptions.UserDisabled(f"Face {user_id} is matching with user {similar_users[0]}, distance {distances[0]} {euclidian} < {threshold}")
+                primary_distance = res['distance']
+                if res["verified"] and res['distance'] <= current_app.config["PRIMARY_PHOTO_ARCFACE_DISTANCE"]:
+                    secondary_pic = get_secondary_photo(similar_users[0])
+                    if not secondary_pic:
+                        _disable_user(now, user_id, photo_stream.stream)
+                        metrics.register_disabled_user(min(euclidian,distances[0]), min(primary_distance,res['distance']))
+                        callback(
+                            current_user=current_user,
+                            primary_md=None,
+                            secondary_md=None,
+                            user={"disabled_at": now}
+                        )
+                        logging.info(f"Face {user_id} is matching with user {similar_users[0]}, distance ({distances[0]} {euclidian}) < {threshold}, ({primary_distance}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
+                        raise exceptions.UserDisabled(f"Face {user_id} is matching with user {similar_users[0]}, distance ({distances[0]} {euclidian}) < {threshold}, ({primary_distance}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
+                    else:
+                        secondary_res = DeepFace.verify(
+                            img1_path=img,
+                            img2_path=loadImageFromStream(io.BytesIO(secondary_pic)),
+                            detector_backend=_detector_high_quality,
+                            model_name=_model_fallback,
+                            distance_metric=_similarity_metric,
+                            normalization="base",
+                            align=True
+                        )
+                        if secondary_res["verified"] and secondary_res['distance'] <= current_app.config["PRIMARY_PHOTO_ARCFACE_DISTANCE"]:
+                            _disable_user(now, user_id, photo_stream.stream)
+                            metrics.register_disabled_user(min(euclidian,distances[0]), min(primary_distance,secondary_res['distance']))
+                            callback(
+                                current_user=current_user,
+                                primary_md=None,
+                                secondary_md=None,
+                                user={"disabled_at": now}
+                            )
+                            logging.info(f"Face {user_id} is matching with user {similar_users[0]}, distance ({distances[0]} {euclidian}) < {threshold}, ({primary_distance} {secondary_res['distance']}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
+                            raise exceptions.UserDisabled(f"Face {user_id} is matching with user {similar_users[0]}, distance ({distances[0]} {euclidian}) < {threshold}, ({primary_distance} {secondary_res['distance']}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
         else:
             # that similar user dont have 2nd pic yet,but we can re-check with fallback model
             simiar_user_picture = get_primary_photo(similar_users[0])
@@ -172,7 +208,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
                 align=True
             )
             if res["verified"] and res['distance'] <= current_app.config["PRIMARY_PHOTO_ARCFACE_DISTANCE"]:
-                disabled = _disable_user(now,user_id, photo_content=photo_stream.stream)
+                disabled = _disable_user(now,user_id, photo_stream.stream)
                 if disabled:
                     metrics.register_disabled_user(distances[0], res['distance'])
                     callback(
@@ -181,8 +217,8 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
                         secondary_md=None,
                         user={"disabled_at": now}
                     )
-                    logging.info(f"Face {user_id} is matching with user {similar_users[0]}, distance {distances[0]} {res['distance']} < {threshold} {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
-                    raise exceptions.UserDisabled(f"Face {user_id} is matching with user {similar_users[0]}, distance {distances[0]} {res['distance']} < {threshold} {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
+                    logging.info(f"Face {user_id} is matching with user {similar_users[0]}, distance {distances[0]} < {threshold}, {res['distance']} < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
+                    raise exceptions.UserDisabled(f"Face {user_id} is matching with user {similar_users[0]}, distance {distances[0]} < {threshold}, {res['distance']} < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
     url = put_primary_photo(user_id,photo_stream.stream)
     upd, rows = _set_primary_metadata(now, user_id, md, url)
     if rows > 0:
