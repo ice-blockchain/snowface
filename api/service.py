@@ -138,7 +138,8 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
             detector_backend=_detector_high_quality,
             align=True,
             normalization="base",
-            target_size=(640,640)
+            target_size=(640,640),
+            landmarks_verification=True
         )[0]["embedding"])
     except ValueError:
         raise exceptions.NoFaces(f"No faces detected, userId: {user_id}")
@@ -491,7 +492,7 @@ def _predict(usr, model, images, now, awaited_emotion):
             raise exceptions.WrongImageSizeException(f"wrong image size for user:{usr['user_id']}, session:{usr['session_id']}")
 
         face_img_list.append(loaded_image)
-    try: DeepFace.extract_faces(face_img_list[1+int(len(face_img_list)/2)], detector_backend=_detector_low_quality, enforce_detection=True)
+    try: DeepFace.extract_faces(face_img_list[1+int(len(face_img_list)/2)], detector_backend=_detector_low_quality, enforce_detection=True, landmarks_verification=False)
     except ValueError as e:
         raise exceptions.NoFaces(f"No faces detected, userId: {usr['user_id']}")
     awaited_idx = model.class_to_idx[awaited_emotion]

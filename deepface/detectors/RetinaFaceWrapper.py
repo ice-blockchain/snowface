@@ -5,7 +5,7 @@ def build_model():
     return face_detector
 
 
-def detect_face(face_detector, img, align=True):
+def detect_face(face_detector, img, align=True, landmarks_verification = False):
 
     from retinaface import RetinaFace  # this is not a must dependency
     from retinaface.commons import postprocess

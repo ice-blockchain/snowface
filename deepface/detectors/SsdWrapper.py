@@ -48,7 +48,7 @@ def build_model():
     return detector
 
 
-def detect_face(detector, img, align=True):
+def detect_face(detector, img, align=True, landmarks_verification = False):
 
     resp = []
 

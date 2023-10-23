@@ -38,7 +38,7 @@ def build_cascade(model_name="haarcascade"):
     return detector
 
 
-def detect_face(detector, img, align=True):
+def detect_face(detector, img, align=True, landmarks_verification = False):
     resp = []
 
     detected_face = None

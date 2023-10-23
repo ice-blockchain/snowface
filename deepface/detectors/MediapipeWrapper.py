@@ -11,7 +11,7 @@ def build_model():
     return face_detection
 
 
-def detect_face(face_detector, img, align=True):
+def detect_face(face_detector, img, align=True, landmarks_verification = False):
     resp = []
 
     img_width = img.shape[1]

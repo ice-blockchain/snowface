@@ -31,7 +31,7 @@ def build_model():
     return YOLO(weight_path)
 
 
-def detect_face(face_detector, img, align=False):
+def detect_face(face_detector, img, align=False, landmarks_verification=False):
     resp = []
 
     # Detect faces

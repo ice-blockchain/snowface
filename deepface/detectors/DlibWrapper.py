@@ -36,7 +36,7 @@ def build_model():
     return detector
 
 
-def detect_face(detector, img, align=True):
+def detect_face(detector, img, align=True, landmarks_verification = False):
 
     import dlib  # this requirement is not a must that's why imported here
 

@@ -625,6 +625,7 @@ def represent(
     detector_backend="opencv",
     align=True,
     normalization="base",
+    landmarks_verification = False,
     target_size = None,
 ):
     """
@@ -671,6 +672,7 @@ def represent(
             grayscale=False,
             enforce_detection=enforce_detection,
             align=align,
+            landmarks_verification = landmarks_verification
         )
     else:  # skip
         if isinstance(img_path, str):
@@ -773,6 +775,7 @@ def extract_faces(
     enforce_detection=True,
     align=True,
     grayscale=False,
+    landmarks_verification = False
 ):
     """
     This function applies pre-processing stages of a face recognition pipeline
@@ -811,6 +814,7 @@ def extract_faces(
         grayscale=grayscale,
         enforce_detection=enforce_detection,
         align=align,
+        landmarks_verification=landmarks_verification
     )
 
     for img, region, confidence in img_objs:
