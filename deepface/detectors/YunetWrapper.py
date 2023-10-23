@@ -55,7 +55,15 @@ def detect_face(detector, image, align=True, score_threshold=0.9):
         {x, y}_{re, le, nt, rcm, lcm} stands for the coordinates of right eye,
         left eye, nose tip, the right corner and left corner of the mouth respectively.
         """
-        (x, y, w, h, x_re, y_re, x_le, y_le) = list(map(int, face[:8]))
+        (x, y, w, h, x_re, y_re, x_le, y_le, x_nt, y_nt, x_rcm, y_rcm, x_lcm, y_lcm) = list(map(int, face[:14]))
+        # If both eyes are not presented we're fail
+        if x_le <= 0 or y_le <= 0:
+            return []
+        if x_re <= 0 or y_re <= 0:
+            return []
+        # If mouth is not presented we're fail (at least one left / right point)
+        if not ((x_rcm > 0 and y_rcm > 0) or (x_lcm > 0 and y_lcm > 0)):
+            return []
 
         # Yunet returns negative coordinates if it thinks part of
         # the detected face is outside the frame.
