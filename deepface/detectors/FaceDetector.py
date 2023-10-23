@@ -58,7 +58,7 @@ def detect_face(face_detector, detector_backend, img, align=True):
     return face, region, confidence
 
 
-def detect_faces(face_detector, detector_backend, img, align=True):
+def detect_faces(face_detector, detector_backend, img, align=True, landmarks_verification = False):
     backends = {
         "opencv": OpenCvWrapper.detect_face,
         "ssd": SsdWrapper.detect_face,
@@ -73,7 +73,7 @@ def detect_faces(face_detector, detector_backend, img, align=True):
     detect_face_fn = backends.get(detector_backend)
 
     if detect_face_fn:  # pylint: disable=no-else-return
-        obj = detect_face_fn(face_detector, img, align)
+        obj = detect_face_fn(face_detector, img, align, landmarks_verification)
         # obj stores list of (detected_face, region, confidence)
         return obj
     else:

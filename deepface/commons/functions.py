@@ -125,6 +125,7 @@ def extract_faces(
     grayscale=False,
     enforce_detection=True,
     align=True,
+    landmarks_verification = False
 ):
     """Extract faces from an image.
 
@@ -156,7 +157,7 @@ def extract_faces(
         face_objs = [(img, img_region, 0)]
     else:
         face_detector = FaceDetector.build_model(detector_backend)
-        face_objs = FaceDetector.detect_faces(face_detector, detector_backend, img, align)
+        face_objs = FaceDetector.detect_faces(face_detector, detector_backend, img, align, landmarks_verification)
 
     # in case of no face found
     if len(face_objs) == 0 and enforce_detection is True:
