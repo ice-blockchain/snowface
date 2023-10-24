@@ -246,7 +246,7 @@ def _disable_user(now, user_id, photo_content):
 
 def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_pics: list):
     now = time.time_ns()
-    user_reference_metadata = _get_primary_metadata(user_id)
+    user_reference_metadata = _get_primary_metadata(user_id, search_growing = False)
     if user_reference_metadata is None:
         raise exceptions.MetadataNotFound(f"User {user_id} have no registered primary metadata yet")
     md_vector = user_reference_metadata["face_metadata"]
@@ -531,7 +531,7 @@ def _send_best_images(similarity_server:str, token, user_id, files):
         response = requests.post(
             url=f"{similarity_server[:-1] if similarity_server.endswith('/') else similarity_server}/v1w/face-auth/similarity/{user_id}",
             files=files,
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": f"Bearer {token}", "x-queued-time": str(int(time.time()*1e6))},
             timeout=25
         )
     except requests.RequestException as e:
