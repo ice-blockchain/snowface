@@ -101,8 +101,9 @@ def analyze(img_path, actions, detector_backend, enforce_detection, align):
     return result
 
 def init_models():
-    DeepFace.build_model(_model)
-    DeepFace.build_model(_model_fallback)
+    if current_app.config["MINIO_URI"]:
+        DeepFace.build_model(_model)
+        DeepFace.build_model(_model_fallback)
     emotion = DeepFace.build_model("Emotion")
     try:
         samplePerson = requests.get(
