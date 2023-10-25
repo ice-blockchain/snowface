@@ -1,4 +1,4 @@
-from prometheus_client import make_asgi_app, multiprocess, CollectorRegistry, generate_latest, Counter, Histogram, REGISTRY, Summary,GC_COLLECTOR,PLATFORM_COLLECTOR,PROCESS_COLLECTOR
+from prometheus_client import make_asgi_app, multiprocess, CollectorRegistry, generate_latest, Counter, Histogram, REGISTRY, Summary,GC_COLLECTOR,PLATFORM_COLLECTOR,PROCESS_COLLECTOR, metrics
 from deepface.extendedmodels.hsefer import HSEmotionRecognizer
 import threading
 from flask import current_app
@@ -19,7 +19,7 @@ _emotion_session_success = Counter("emotion_session_success","Counter of success
 _emotion_session_failure = Counter("emotion_session_failure","Counter of failed emotion liveness sessions")
 
 _session_length = None
-_gunicorn_queue = Histogram("gunicorn_queue_request_time", "Time per request spent in queue", labelnames=["path"])
+_gunicorn_queue = Histogram("gunicorn_queue_request_time", "Time per request spent in queue", labelnames=["path"],buckets=(.005, .01, .025, .05, .075, .1, .25, .5, .75, 1.0, 2.5, 5.0, 7.5, 10.0,15.0, 20.0, 30.0, 40.0,50.0,59.9, metrics.INF))
 REQUEST_TIME = Histogram('request_processing_seconds', 'Time spent processing request', labelnames=["path"])
 
 _similarity_failure_distance_sface = Histogram("similarity_failure_distance_sface", "Euclidian (L2) distances of faces between primary users photo and failed secondary (for primary model: sface)", buckets=(1.05,1.1,1.15,1.2,1.25,1.3,1.5,1.75,2.0))
