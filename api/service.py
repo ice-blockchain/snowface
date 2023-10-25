@@ -531,7 +531,7 @@ def _send_best_images(similarity_server:str, token, user_id, files):
         response = requests.post(
             url=f"{similarity_server[:-1] if similarity_server.endswith('/') else similarity_server}/v1w/face-auth/similarity/{user_id}",
             files=files,
-            headers={"Authorization": f"Bearer {token}", "x-queued-time": str(int(time.time()*1e6))},
+            headers={"Authorization": f"Bearer {token}", "x-queued-time": str(float(time.time()))},
             timeout=25
         )
     except requests.RequestException as e:
@@ -552,16 +552,17 @@ def _finish_session(usr, token):
     for img_idx in best_indexes:
         file_path = f"{current_app.config['IMG_STORAGE_PATH']}{usr['user_id']}/{img_idx}{_picture_extension}"
         files.append(('image', (f"{img_idx}{_picture_extension}", open(file_path, 'rb'), 'image/jpeg')))
-    # executor = current_app.extensions["snowfaceexecutor"]
-    # futures = [
-    #     executor.submit(
-    #         _send_best_images,
-    #         current_app.config['SIMILARITY_SERVER'],
-    #         token, usr['user_id'],
-    #         files
-    #     )
-    # ]
-    identity_match = _send_best_images(current_app.config['SIMILARITY_SERVER'], token,usr['user_id'], files)
+    executor = current_app.extensions["snowfaceexecutor"]
+    futures = [
+        executor.submit(
+            _send_best_images,
+            current_app.config['SIMILARITY_SERVER'],
+            token, usr['user_id'],
+            files
+        )
+    ]
+    identity_match=True # to be handled async way on eskimo / freezer
+    #identity_match = _send_best_images(current_app.config['SIMILARITY_SERVER'], token,usr['user_id'], files)
     if identity_match:
         _remove_user_images(user_id=usr['user_id'])
         _remove_session(user_id=usr['user_id'])
