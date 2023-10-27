@@ -343,14 +343,15 @@ def get_user(user_id: str, search_growing = True):
 def get_expired_sessions(duration):
     users = get_users_collection()
     expired = time.time_ns() - duration
-    res = users.query(
-        expr = f"session_started_at < {expired}",
-        offset = 0,
-        limit = 16384,
-        output_fields = ["user_id", "session_id", "disabled_at", "last_negative_request_at"],
-        ignore_growing = False,
-        consistency_level = "Bounded"
-    )
+    res = []
+    # res = users.query(
+    #     expr = f"session_started_at < {expired}",
+    #     offset = 0,
+    #     limit = 16384,
+    #     output_fields = ["user_id", "session_id", "disabled_at", "last_negative_request_at"],
+    #     ignore_growing = False,
+    #     consistency_level = "Bounded"
+    # )
     return res
 
 def remove_session(user_id: str):

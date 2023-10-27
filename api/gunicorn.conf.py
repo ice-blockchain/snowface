@@ -20,11 +20,12 @@ def pre_request(worker, request):
 
 scheduler = BackgroundScheduler()
 def when_ready(server):
-    global scheduler
-    if os.environ.get('IMG_STORAGE_PATH'):
-        scheduler.add_job(
-            id = "emotions_cleanup",
-            func=emotions_cleanup,
-            trigger="interval", seconds = 60,
-        )
-        scheduler.start()
+    pass
+    # global scheduler
+    # if os.environ.get('IMG_STORAGE_PATH'):
+    #     scheduler.add_job(
+    #         id = "emotions_cleanup",
+    #         func=emotions_cleanup,
+    #         trigger="interval", seconds = 60,
+    #     )
+    #     scheduler.start()
