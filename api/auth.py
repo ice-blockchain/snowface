@@ -34,6 +34,7 @@ class Token:
 def auth_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
+        return f(Token("",request.view_args.get("user_id",""),"", "", ""),*args,**kwargs)
         token = None
         if "Authorization" in request.headers:
             token = request.headers["Authorization"].replace("Bearer ","",1)

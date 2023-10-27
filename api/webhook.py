@@ -3,6 +3,7 @@ import requests, backoff
 import logging
 from datetime import datetime
 def _check_status_code(r):
+    if not r.response: return False
     return r.response.status_code == 401
 def _log(r):
     e = r["exception"]
