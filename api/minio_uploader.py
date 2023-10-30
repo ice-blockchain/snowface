@@ -27,20 +27,20 @@ def _get_minio_client():
             secret_key=current_app.config["MINIO_SECRET_KEY"],
             secure=ssl
         )
+        if not _minio_client.bucket_exists(_bucket_name):
+            try: _minio_client.make_bucket(_bucket_name)
+            except minio.error.S3Error as e:
+                if e.code != "BucketAlreadyOwnedByYou":
+                    raise e
+        if not _minio_client.bucket_exists(_disabled_users_bucket_name):
+            try: _minio_client.make_bucket(_disabled_users_bucket_name)
+            except minio.error.S3Error as e:
+                if e.code != "BucketAlreadyOwnedByYou":
+                    raise e
     return _minio_client
 
 def _client_with_initialized_bucket():
     client = _get_minio_client()
-    if not client.bucket_exists(_bucket_name):
-        try: client.make_bucket(_bucket_name)
-        except minio.error.S3Error as e:
-            if e.code != "BucketAlreadyOwnedByYou":
-                raise e
-    if not client.bucket_exists(_disabled_users_bucket_name):
-        try: client.make_bucket(_disabled_users_bucket_name)
-        except minio.error.S3Error as e:
-            if e.code != "BucketAlreadyOwnedByYou":
-                raise e
     return client
 
 def put_primary_photo(user_id: str, photo_content):

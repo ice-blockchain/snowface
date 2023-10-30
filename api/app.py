@@ -4,7 +4,8 @@ import logging
 from flask import Flask
 from routes import blueprint
 
-from milvus import init_milvus, close_milvus, _default_user, _default_password
+from faces import init_milvus, close_milvus, _default_user, _default_password
+from users import _get_client as init_redis
 from auth import _get_firebase_client
 from minio_uploader import _client_with_initialized_bucket
 from service import init_models, _model, _model_fallback, _similarity_metric, _default_session_duration
@@ -34,6 +35,10 @@ def create_app():
     app.config['MILVUS_URI'] = os.environ.get('MILVUS_URI')
     app.config['MILVUS_USER'] = os.environ.get('MILVUS_USER', _default_user)
     app.config['MILVUS_PASSWORD'] = os.environ.get('MILVUS_PASSWORD', _default_password)
+
+    app.config['REDIS_URI'] = os.environ.get('REDIS_URI')
+    if not app.config['REDIS_URI']:
+        raise Exception("REDIS_URI was not set")
 
     app.config['MINIO_URI'] = os.environ.get('MINIO_URI')
     app.config['MINIO_ACCESS_KEY'] = os.environ.get('MINIO_ACCESS_KEY','minioadmin')
@@ -77,6 +82,7 @@ def create_app():
 
 def when_ready(app):
     init_milvus()
+    init_redis()
     _get_firebase_client()
     if app.config['MINIO_URI']:
         _client_with_initialized_bucket()

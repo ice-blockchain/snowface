@@ -24,3 +24,4 @@ prometheus-client==0.17.1
 flask_httpauth
 flask-executor==1.0.0
 apscheduler==3.10.4
+redis[hiredis]

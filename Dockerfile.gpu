@@ -37,19 +37,13 @@ LABEL org.opencontainers.image.source https://github.com/serengil/deepface
 RUN mkdir /app
 RUN mkdir -p /app/deepface && mkdir -p root/.deepface/weights/
 # -----------------------------------
-# Copy required files from repo into image
-COPY ./deepface /app/deepface
-COPY ./api/*.py /app/
-COPY ./requirements.txt /app/
-COPY ./setup.py /app/
-COPY ./README.md /app/
 #openCV with GPU
 #COPY ./opencv_contrib_python_rolling-4.6.0.20221102-cp36-abi3-linux_x86_64.whl /app/
 
 # -----------------------------------
 # update image os
 RUN apt-get update
-RUN apt-get install ffmpeg libsm6 libxext6 wget libnvidia-decode-525 libnvidia-encode-525 -y
+RUN apt-get install --no-install-recommends ffmpeg libsm6 libxext6 wget libnvidia-decode-525 libnvidia-encode-525 -y
 
 WORKDIR /root/.deepface/weights/
 RUN wget https://github.com/HSE-asavchenko/face-emotion-recognition/raw/main/models/affectnet_emotions/onnx/enet_b0_8_best_vgaf.onnx && \
@@ -57,6 +51,12 @@ RUN wget https://github.com/HSE-asavchenko/face-emotion-recognition/raw/main/mod
     wget https://github.com/serengil/deepface_models/releases/download/v1.0/arcface_weights.h5 && \
     wget https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx
 # -----------------------------------
+
+# Copy required files from repo into image
+COPY ./requirements.txt /app/
+COPY ./setup.py /app/
+COPY ./README.md /app/
+
 # switch to application directory
 WORKDIR /app
 
@@ -72,7 +72,8 @@ RUN pip --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host=fi
 # -----------------------------------
 # install deepface from source code (always up-to-date)
 RUN pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host=files.pythonhosted.org -e .
-
+COPY ./deepface /app/deepface
+COPY ./api/*.py /app/
 # -----------------------------------
 # environment variables
 ENV TF_FORCE_GPU_ALLOW_GROWTH=true

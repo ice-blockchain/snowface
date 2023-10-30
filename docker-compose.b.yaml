@@ -45,7 +45,7 @@ services:
       MINIO_ACCESSKEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       COMMON_SECURITY_AUTHORIZATION_ENABLED: "true"
-      PROXY_TIME_TICK_INTERVAL: 20
+      PROXY_TIME_TICK_INTERVAL: 50
     volumes:
       - ${DOCKER_VOLUME_DIRECTORY:-..}/snowface-volumes/milvus:/var/lib/milvus
      # - ./milvus.yaml:/milvus/configs/milvus.yaml
@@ -59,6 +59,15 @@ services:
     depends_on:
       - "etcd"
       - "minio"
+  dragonfly:
+    container_name: snowface-dragonfly
+    image: 'docker.dragonflydb.io/dragonflydb/dragonfly'
+    ulimits:
+      memlock: -1
+    network_mode: "host"
+    command: "dragonfly --requirepass=redis-password --dbnum=1"
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-..}/snowface-volumes/dragonfly:/data
   snowface-recognition:
     image: snowface-recognition
     build:
@@ -87,6 +96,7 @@ services:
       # to change run milvus and change it from client https://github.com/milvus-io/milvus/discussions/22736
       # like docker run python:3.8 bash -c "pip3 install pymilvus; python3 -c \"from pymilvus import utility; from pymilvus import connections; connections.connect(host='http://localhost',port='19530',user='root',password='Milvus');utility.reset_password('root', 'Milvus', 'new_password')\""
       MILVUS_PASSWORD: Milvus # default = Milvus
+      REDIS_URI: redis://:redis-password@localhost:6379/0
       METADATA_UPDATED_CALLBACK_URL: https://localhost:443/webhook #webhook to freezer-refrigerant endpoint, if emptty / not set = no webhook called
       METADATA_UPDATED_SECRET: bogus-secret # secret token matching with freezer-refrigerant
       PRIMARY_PHOTO_ERROR_LIMIT: 10/minute # if empty/not set = no limit

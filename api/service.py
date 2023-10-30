@@ -11,20 +11,22 @@ from webhook import callback, UnauthorizedFromWebhook
 from flask import current_app
 import exceptions
 
-from milvus import (
+from faces import (
     get_primary_metadata                   as _get_primary_metadata,
     get_secondary_metadata                 as _get_secondary_metadata,
     update_secondary_metadata              as _update_secondary_metadata,
     find_similar_users                     as _find_similar_users,
     set_primary_metadata                   as _set_primary_metadata,
-    delete_metadatas                        as _delete_metadatas,
+    delete_metadatas                        as _delete_metadatas
+)
+
+from users import (
     update_user                            as _update_user,
-    disable_user                           as milvus_disable_user,
+    disable_user                           as db_disable_user,
     get_user                               as _get_user,
     update_emotions_and_best_score         as _update_emotions_and_best_score,
     remove_session                         as _remove_session,
     update_last_negative_request_at        as _update_last_negative_request_at,
-    get_users_collection                   as _get_users_collection,
     get_expired_sessions                   as _get_expired_sessions
 )
 from PIL import Image
@@ -150,7 +152,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
         # make sure it is not a false positive, let's check other picture as well
         secondary_md = _get_secondary_metadata(similar_users[0])
         if secondary_md:
-            bestIndex, euclidian = compare_metadatas([secondary_md["face_metadata"],md], threshold)
+            bestIndex, euclidian, _ = compare_metadatas([secondary_md["face_metadata"],md], threshold)
             if bestIndex != -1:
                 simiar_user_picture = get_primary_photo(similar_users[0])
                 res = DeepFace.verify(
@@ -241,7 +243,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
 
 def _disable_user(now, user_id, photo_content):
     _put_disable_photo(user_id,photo_content)
-    return milvus_disable_user(now,user_id)
+    return db_disable_user(now,user_id)
 
 
 def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_pics: list):
@@ -251,7 +253,7 @@ def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_
         raise exceptions.MetadataNotFound(f"User {user_id} have no registered primary metadata yet")
     md_vector = user_reference_metadata["face_metadata"]
     pics = [loadImageFromStream(p) for p in raw_pics]
-    md, bestIndex, euclidian,threshold = extract_and_compare_metadatas(md_vector, pics,_model)
+    md, bestIndex, euclidian,threshold, bestNotFittingIndex = extract_and_compare_metadatas(md_vector, pics,_model)
     if bestIndex == -1:
         # user is not the same as on primary photo - let's try with more complex but slower model as well to reduce false-negatives
         primary_photo = get_primary_photo(user_id)
@@ -265,7 +267,15 @@ def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_
         )[0]["embedding"])
         euclidian_sface = euclidian
         sface_threshold = threshold
-        mdFallback, bestIndex, euclidian,threshold = extract_and_compare_metadatas(md_vector, pics,_model_fallback)
+
+        bestIndex, euclidian, bestNotFittingIndex = compare_metadatas([md_vector,distance.l2_normalize(DeepFace.represent(
+            img_path=pics[bestNotFittingIndex],
+            model_name=_model_fallback,
+            enforce_detection=True,
+            detector_backend=_detector_high_quality,
+            align=True,
+            normalization="base",
+        )[0]["embedding"])], _similarity_threshold(_model_fallback))
         if bestIndex == -1:
             metrics.register_similarity_failure(euclidian_sface,euclidian)
             raise exceptions.NotSameUser(f"user mismatch for user_id {user_id}: distance is greater than {sface_threshold} {threshold}: {euclidian_sface} {euclidian}")
@@ -302,8 +312,8 @@ def extract_and_compare_metadatas(user_reference_metadata: list, pics, model):
     except ValueError as e:
         raise exceptions.NoFaces("No faces detected")
     threshold = _similarity_threshold(model)
-    bestIndex, euclidian = compare_metadatas(metadata_to_compare, threshold)
-    return metadata_to_compare,bestIndex, euclidian, threshold
+    bestIndex, euclidian, bestNotFittingIndex = compare_metadatas(metadata_to_compare, threshold)
+    return metadata_to_compare, bestIndex, euclidian, threshold, bestNotFittingIndex
 
 def _similarity_threshold(model: str):
     return current_app.config[f"SIMILARITY_{model.upper()}_DISTANCE"]
@@ -314,9 +324,9 @@ def compare_metadatas(metadatas: list, threshold: float):
     indexes = [(distances.index(d), m := min(d,m)) for d in distances if d <= threshold]
     indexes.sort(key=lambda x: x[1])
     if len(indexes) != len(metadatas) and len(indexes) < _min_images_with_emotions_to_proceed:
-        return -1, min([i for i in distances if i > threshold])
+        return -1, min([i for i in distances if i > threshold]), np.argmin(distances)
     else:
-        return indexes[0]
+        return indexes[0][0], m, indexes[0][0]
 
 def loadImageFromStream(p):
     chunk_arr = np.frombuffer(p.read(), dtype=np.uint8)
@@ -570,7 +580,7 @@ def _finish_session(usr, token):
 
 def process_images(token: str, user_id: str, session_id: str, images:list):
     now = time.time_ns()
-    usr = _get_user(user_id, search_growing=True)
+    usr = _get_user(user_id, search_growing=False)
     _validate_session(usr=usr, user_id=user_id, session_id=session_id, now=now)
 
     if usr['last_negative_request_at'] > 0 and now - usr['last_negative_request_at'] <= current_app.config['LIMIT_RATE_NEGATIVE']:
@@ -716,15 +726,13 @@ def proxy_delete(current_user):
     return response.content, response.status_code
 
 def emotions_cleanup():
+    now = time.time_ns()
     duration = int(os.environ.get('SESSION_DURATION', _default_session_duration))*int(1e9)
-    sessions = _get_expired_sessions(duration)
-    logging.debug(f"cleaning outdated sessions ({len(sessions)})...")
+    sessions = _get_expired_sessions(now,duration)
+    logging.info(f"cleaning outdated sessions ({len(sessions)})...")
     for session in sessions:
-        not_disabled = (session["disabled_at"] is not None and session["disabled_at"] == 0)
-        not_rate_limited = (session["last_negative_request_at"]  is not None and session["last_negative_request_at"] == 0)
-        if not_disabled and not_rate_limited:
-            _remove_session(session["user_id"])
-        _remove_user_images(session["user_id"])
+        _remove_session(session, duration)
+        _remove_user_images(session)
 
 def reenable_user(current_user, user_id: str, duplicated_face: str):
     _remove_session(user_id)
