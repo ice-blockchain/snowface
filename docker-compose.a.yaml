@@ -42,10 +42,12 @@ services:
       # to change run milvus and change it from client https://github.com/milvus-io/milvus/discussions/22736
       # like docker run python:3.8 bash -c "pip3 install pymilvus; python3 -c \"from pymilvus import utility; from pymilvus import connections; connections.connect(host='http://localhost',port='19530',user='root',password='Milvus');utility.reset_password('root', 'Milvus', 'new_password')\""
       MILVUS_PASSWORD: Milvus # default = Milvus
-      LIMIT_RATE: 30 # seconds, staging value
-      LIMIT_RATE_NEGATIVE: 1 # second, staging value
+      REDIS_URI: redis://:redis-password@localhost:6379/0
+      LIMIT_RATE: 0 # seconds, staging value
+      LIMIT_RATE_NEGATIVE: 0 # second, staging value
       SIMILARITY_SERVER: http://127.0.0.1:5000/ # change to server B address.
       TOTAL_BEST_PICTURES: 7
+      INITIAL_EMOTION_COUNT: 10
       MAX_EMOTION_COUNT: 10
       MAX_CONTENT_LENGTH: 1000000 # 1 Mb
       IMG_STORAGE_PATH: /images # Change to the path where images will be stored.

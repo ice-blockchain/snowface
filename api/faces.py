@@ -67,44 +67,8 @@ def init_collection(name, create_fn, extra_indexes = None):
     return db
 
 def init_schema():
-    _users_collection = init_collection("users", create_users_collection, extra_indexes={
-        "session_started_at": lambda collection:     collection.create_index(
-            field_name="session_started_at"
-        )
-    })
     _faces_collection = init_collection("faces", create_faces_collection)
 
-def create_users_collection(name):
-    fields = [
-        FieldSchema(name="user_id", dtype=DataType.VARCHAR, max_length=40, is_primary=True),
-        FieldSchema(name="session_id", dtype=DataType.VARCHAR, max_length=36),
-        FieldSchema(name="emotions", dtype=DataType.VARCHAR, max_length=512),
-        FieldSchema(name="session_started_at", dtype=DataType.INT64),
-        FieldSchema(name="disabled_at", dtype=DataType.INT64),
-        FieldSchema(name="last_negative_request_at", dtype=DataType.INT64),
-        FieldSchema(name="emotion_sequence", dtype=DataType.INT64),
-        FieldSchema(name="best_pictures_score", dtype=DataType.FLOAT_VECTOR, dim = 45),
-    ]
-    schema = CollectionSchema(
-        fields=fields,
-        description="users"
-    )
-    users = Collection(
-        name=name,
-        schema=schema,
-        using=_conn_prefix
-    )
-    users.create_index(
-        field_name="best_pictures_score",
-        index_params={
-            "metric_type":"L2",
-            "index_type":"HNSW",
-            "params":{"efConstruction":512, "M":16}
-        },
-
-    )
-
-    return users
 
 def create_faces_collection(name):
     faces = Collection(
@@ -161,15 +125,6 @@ def get_faces_collection():
         _faces_collection = init_collection("faces", create_faces_collection)
 
     return _faces_collection
-
-def get_users_collection():
-    global _users_collection
-    if not connections.has_connection(_conn_prefix):
-        connect_milvus()
-    if _users_collection is None:
-        _users_collection = init_collection("users", create_users_collection)
-
-    return _users_collection
 
 def get_primary_metadata(user_id, search_growing = True):
     faces = get_faces_collection()
@@ -245,9 +200,6 @@ def set_primary_metadata(now: int, user_id:str, metadata: list, url: str):
     faces = get_faces_collection()
     pk = f"{user_id}~{_picture_primary}"
     insertedRows = faces.insert([[pk],[user_id],[np.int32(_picture_primary)],[metadata],[url],[now]]).insert_count
-    # t = time.time()
-    # faces.flush()
-    # print("flush took", time.time() - t)
     return {
         "user_picture_id": pk,
         "user_id": user_id,
@@ -262,107 +214,7 @@ def delete_metadatas(user_id: str, pk: list):
     secondary = get_secondary_metadata(user_id)
     return primary, secondary, faces.delete(f"user_picture_id in {pk}").delete_count
 
-def disable_user(now: int, user_id: str):
-    users = get_users_collection()
-    user = get_user(user_id)
-    if user is not None:
-        insertedRows = users.upsert([[user_id], [user["session_id"]], [user["emotions"]],[user["session_started_at"]], [now], [user["last_negative_request_at"]], [user["emotion_sequence"]], [user["best_pictures_score"]]]).upsert_count
-    else:
-        insertedRows = users.upsert([[user_id], [""], [""],[0], [now], [0], [0], [np.array([0.0]*45)]]).upsert_count
-    return insertedRows > 0
-
-def update_user(
-    user_id: str,
-    session_id: str,
-    emotions: str,
-    session_started_at,
-    last_negative_request_at,
-    disabled_at,
-    emotion_sequence,
-    best_pictures_score,
-    now
-):
-    users = get_users_collection()
-    insertedRows = users.upsert([
-        [user_id],
-        [session_id],
-        [emotions],
-        [session_started_at],
-        [disabled_at],
-        [last_negative_request_at],
-        [emotion_sequence],
-        [best_pictures_score]
-    ]).upsert_count
-
-    return insertedRows > 0
-
-def update_emotions_and_best_score(usr,emotions: list, emotion_sequence: int, best_score: list, last_negative_request_at = None):
-    users = get_users_collection()
-    insertedRows = users.upsert([
-        [usr['user_id']],
-        [usr['session_id']],
-        [emotions],
-        [usr['session_started_at']],
-        [usr['disabled_at']],
-        [last_negative_request_at or usr['last_negative_request_at']],
-        [emotion_sequence],
-        [best_score]
-    ]).upsert_count
-
-    return insertedRows > 0
-
-def update_last_negative_request_at(usr, now: int):
-    users = get_users_collection()
-    insertedRows = users.upsert([
-        [usr['user_id']],
-        [usr['session_id']],
-        [usr['emotions']],
-        [usr['session_started_at']],
-        [usr['disabled_at']],
-        [now],
-        [usr['emotion_sequence']],
-        [usr['best_pictures_score']]
-    ]).upsert_count
-
-    return insertedRows > 0
-
-def get_user(user_id: str, search_growing = True):
-    users = get_users_collection()
-    res = users.query(
-        expr = f"user_id == \"{user_id}\"",
-        offset = 0,
-        limit = 1,
-        output_fields = ["user_id", "session_id", "emotions", "session_started_at", "disabled_at", "last_negative_request_at", "emotion_sequence", "best_pictures_score"],
-        ignore_growing = False,
-        consistency_level = "Strong" if search_growing else "Bounded"
-    )
-    if len(res) == 0:
-        return None
-
-    return res[0]
-def get_expired_sessions(duration):
-    users = get_users_collection()
-    expired = time.time_ns() - duration
-    res = users.query(
-        expr = f"session_started_at < {expired}",
-        offset = 0,
-        limit = 16384,
-        output_fields = ["user_id", "session_id", "disabled_at", "last_negative_request_at"],
-        ignore_growing = False,
-        consistency_level = "Bounded"
-    )
-    return res
-
-def remove_session(user_id: str):
-    users = get_users_collection()
-    expr = f"user_id in [\"{user_id}\"]"
-    users.delete(expr)
-
 def ping(timeout = 30):
-    if _users_collection is None: get_users_collection()
-    state = utility.load_state(_users_collection.name, using=_conn_prefix, timeout=timeout)
-    if state != LoadState.Loaded:
-        raise Exception(f"Collection {_users_collection.name} is in {state} state")
     if _faces_collection is None: get_faces_collection()
     state = utility.load_state(_faces_collection.name, using=_conn_prefix, timeout=timeout)
     if state != LoadState.Loaded:

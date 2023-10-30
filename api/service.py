@@ -11,20 +11,22 @@ from webhook import callback, UnauthorizedFromWebhook
 from flask import current_app
 import exceptions
 
-from milvus import (
+from faces import (
     get_primary_metadata                   as _get_primary_metadata,
     get_secondary_metadata                 as _get_secondary_metadata,
     update_secondary_metadata              as _update_secondary_metadata,
     find_similar_users                     as _find_similar_users,
     set_primary_metadata                   as _set_primary_metadata,
-    delete_metadatas                        as _delete_metadatas,
+    delete_metadatas                        as _delete_metadatas
+)
+
+from users import (
     update_user                            as _update_user,
-    disable_user                           as milvus_disable_user,
+    disable_user                           as db_disable_user,
     get_user                               as _get_user,
     update_emotions_and_best_score         as _update_emotions_and_best_score,
     remove_session                         as _remove_session,
     update_last_negative_request_at        as _update_last_negative_request_at,
-    get_users_collection                   as _get_users_collection,
     get_expired_sessions                   as _get_expired_sessions
 )
 from PIL import Image
@@ -241,7 +243,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
 
 def _disable_user(now, user_id, photo_content):
     _put_disable_photo(user_id,photo_content)
-    return milvus_disable_user(now,user_id)
+    return db_disable_user(now,user_id)
 
 
 def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_pics: list):
@@ -578,7 +580,7 @@ def _finish_session(usr, token):
 
 def process_images(token: str, user_id: str, session_id: str, images:list):
     now = time.time_ns()
-    usr = _get_user(user_id, search_growing=True)
+    usr = _get_user(user_id, search_growing=False)
     _validate_session(usr=usr, user_id=user_id, session_id=session_id, now=now)
 
     if usr['last_negative_request_at'] > 0 and now - usr['last_negative_request_at'] <= current_app.config['LIMIT_RATE_NEGATIVE']:
@@ -724,15 +726,13 @@ def proxy_delete(current_user):
     return response.content, response.status_code
 
 def emotions_cleanup():
+    now = time.time_ns()
     duration = int(os.environ.get('SESSION_DURATION', _default_session_duration))*int(1e9)
-    sessions = _get_expired_sessions(duration)
-    logging.debug(f"cleaning outdated sessions ({len(sessions)})...")
+    sessions = _get_expired_sessions(now,duration)
+    logging.info(f"cleaning outdated sessions ({len(sessions)})...")
     for session in sessions:
-        not_disabled = (session["disabled_at"] is not None and session["disabled_at"] == 0)
-        not_rate_limited = (session["last_negative_request_at"]  is not None and session["last_negative_request_at"] == 0)
-        if not_disabled and not_rate_limited:
-            _remove_session(session["user_id"])
-        _remove_user_images(session["user_id"])
+        _remove_session(session, duration)
+        _remove_user_images(session)
 
 def reenable_user(current_user, user_id: str, duplicated_face: str):
     _remove_session(user_id)

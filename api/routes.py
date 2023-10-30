@@ -11,7 +11,8 @@ import logging
 from prometheus_client import CONTENT_TYPE_LATEST
 from metrics import latest, REQUEST_TIME
 from flask_httpauth import HTTPBasicAuth
-from milvus import ping as milvus_ping
+from faces import ping as milvus_ping
+from users import ping as redis_ping
 from minio_uploader import ping as minio_ping
 
 blueprint = Blueprint("routes", __name__)
@@ -249,7 +250,7 @@ def emotions(current_user, user_id):
 
             return {'message': str(e), 'code': _rate_limit_negative_exceeded}, 429
         except Exception as e:
-            _log_error(current_user, e)
+            _log_error(current_user, e, True)
 
             return {"message":"oops, an error occured"}, 500
 
@@ -337,6 +338,7 @@ def healthcheck():
     timeout = 30
     try:
         milvus_ping()
+        redis_ping()
         if current_app.config['MINIO_URI']:
             minio_ping()
         return "{}",200
