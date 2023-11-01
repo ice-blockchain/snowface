@@ -149,21 +149,21 @@ def verify(
     # --------------------------------
     if target_size is None:
         target_size = functions.find_target_size(model_name=model_name)
-
+    if type(detector_backend) == str:
+        detector_backend = (detector_backend,detector_backend)
     # img pairs might have many faces
     img1_objs = functions.extract_faces(
         img=img1_path,
         target_size=target_size,
-        detector_backend=detector_backend,
+        detector_backend=detector_backend[0],
         grayscale=False,
         enforce_detection=enforce_detection,
         align=align,
     )
-
     img2_objs = functions.extract_faces(
         img=img2_path,
         target_size=target_size,
-        detector_backend=detector_backend,
+        detector_backend=detector_backend[1],
         grayscale=False,
         enforce_detection=enforce_detection,
         align=align,
