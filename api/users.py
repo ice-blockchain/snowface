@@ -21,6 +21,7 @@ def _expirationKey(session_started_at: int, duration: int):
 def disable_user(now: int, user_id: str):
     r = _get_client()
     return r.hset(_userKey(user_id),mapping={
+        "user_id": user_id,
         "disabled_at": now,
     })
 def update_user(
@@ -65,6 +66,7 @@ def update_last_negative_request_at(usr, now: int):
     r = _get_client()
 
     res = r.hset(_userKey(usr["user_id"]),mapping={
+        "user_id": usr["user_id"],
         "last_negative_request_at": now,
     })
     res = res and r.hdel(_expirationKey(usr["session_started_at"], current_app.config["SESSION_DURATION"]),usr['user_id'])
@@ -83,12 +85,12 @@ def get_user(user_id: str, search_growing = True):
               ]
     mappers = {
         "user_id": lambda x: str(x, encoding = "utf-8"),
-        "session_id": lambda x: str(x, encoding = "utf-8"),
-        "emotions": lambda x: str(x, encoding = "utf-8"),
+        "session_id": lambda x: str(x, encoding = "utf-8") if x else "",
+        "emotions": lambda x: str(x, encoding = "utf-8") if x else "",
         "session_started_at": int,
         "disabled_at": int,
         "last_negative_request_at": int,
-        "emotion_sequence": int,
+        "emotion_sequence": lambda x: int(x) if x else 0,
         "best_pictures_score": lambda x: x,
     }
     res = r.hmget(_userKey(user_id),hkeys)
