@@ -132,20 +132,21 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
     existing_md = _get_primary_metadata(user_id, search_growing=False)
     if existing_md is not None:
         raise exceptions.MetadataAlreadyExists(f"User {user_id} already owns primary face uploaded at {existing_md['uploaded_at']}")
-    img = loadImageFromStream(photo_stream)
     try:
-        md = distance.l2_normalize(DeepFace.represent(
-            img_path=img,
-            model_name=_model,
-            enforce_detection=True,
+        img = DeepFace.extract_faces(
+            img_path=loadImageFromStream(photo_stream),
             detector_backend=_detector_high_quality,
             align=True,
-            normalization="base",
-            target_size=(640,640),
-            landmarks_verification=True
-        )[0]["embedding"])
+            landmarks_verification=True,
+            target_size=(640,640))[0]['face']
     except ValueError:
         raise exceptions.NoFaces(f"No faces detected, userId: {user_id}")
+    md = distance.l2_normalize(DeepFace.represent(
+        img_path=img,
+        model_name=_model,
+        detector_backend="skip",
+        target_size=(640,640)
+    )[0]["embedding"])
     threshold = current_app.config['PRIMARY_PHOTO_SFACE_DISTANCE']
     similar_users, distances = _find_similar_users(user_id,md, threshold)
     if similar_users[0] != user_id:
@@ -158,7 +159,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
                 res = DeepFace.verify(
                     img1_path=img,
                     img2_path=loadImageFromStream(io.BytesIO(simiar_user_picture)),
-                    detector_backend=_detector_high_quality,
+                    detector_backend=("skip",_detector_high_quality),
                     model_name=_model_fallback,
                     distance_metric=_similarity_metric,
                     normalization="base",
@@ -182,7 +183,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
                         secondary_res = DeepFace.verify(
                             img1_path=img,
                             img2_path=loadImageFromStream(io.BytesIO(secondary_pic)),
-                            detector_backend=_detector_high_quality,
+                            detector_backend=("skip",_detector_high_quality),
                             model_name=_model_fallback,
                             distance_metric=_similarity_metric,
                             normalization="base",
@@ -205,7 +206,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
             res = DeepFace.verify(
                 img1_path=img,
                 img2_path=loadImageFromStream(io.BytesIO(simiar_user_picture)),
-                detector_backend=_detector_high_quality,
+                detector_backend=("skip", _detector_high_quality),
                 model_name=_model_fallback,
                 distance_metric=_similarity_metric,
                 normalization="base",
@@ -331,7 +332,10 @@ def extract_and_compare_metadatas(user_reference_metadata: list, pics, model):
     except ValueError as e:
         raise exceptions.NoFaces("No faces detected")
     pics[-1] = face['face']
-    metadata_to_compare.extend([distance.l2_normalize(m.predict(np.expand_dims(p[::2,::2], axis=0))[0].tolist()) for p in pics])
+    def predict_pic(p):
+        with metrics.represent_time.labels(model = model).time():
+            return distance.l2_normalize(m.predict(np.expand_dims(p[::2,::2], axis=0))[0].tolist())
+    metadata_to_compare.extend([predict_pic(p) for p in pics])
     threshold = _similarity_threshold(model)
     bestIndex, euclidian, bestNotFittingIndex = compare_metadatas(metadata_to_compare, threshold)
     return metadata_to_compare, bestIndex, euclidian, threshold, bestNotFittingIndex

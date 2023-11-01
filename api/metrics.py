@@ -1,5 +1,6 @@
 from prometheus_client import make_asgi_app, multiprocess, CollectorRegistry, generate_latest, Counter, Histogram, REGISTRY, Summary,GC_COLLECTOR,PLATFORM_COLLECTOR,PROCESS_COLLECTOR, metrics
 from deepface.extendedmodels.hsefer import HSEmotionRecognizer
+from deepface.DeepFace import set_represent_metric as _set_represent
 import threading
 from flask import current_app
 def latest():
@@ -22,6 +23,8 @@ _session_length = None
 _gunicorn_queue = Histogram("gunicorn_queue_request_time", "Time per request spent in queue", labelnames=["path"],buckets=(.005, .01, .025, .05, .075, .1, .25, .5, .75, 1.0, 2.5, 5.0, 7.5, 10.0,15.0, 20.0, 30.0, 40.0,50.0,59.9, metrics.INF))
 REQUEST_TIME = Histogram('request_processing_seconds', 'Time spent processing request', labelnames=["path"])
 
+represent_time = Histogram("represent_time", "Time per single image of metadata extraction from face picture", labelnames=["model"],buckets=(.005, .01, .025, .05, .075, .1, .25, .5, .75, 1.0, 2.5, 5.0, 7.5, 10.0,15.0, 20.0, 30.0, 40.0,50.0,59.9, metrics.INF))
+_set_represent(represent_time)
 _similarity_failure_distance_sface = Histogram("similarity_failure_distance_sface", "Euclidian (L2) distances of faces between primary users photo and failed secondary (for primary model: sface)", buckets=(1.05,1.1,1.15,1.2,1.25,1.3,1.5,1.75,2.0))
 _similarity_failure_distance_arcface = Histogram("similarity_failure_distance_arcface", "Euclidian (L2) distances of faces between primary users photo and failed secondary (for fallback model: arcface)", buckets=(1.1,1.15,1.2,1.25,1.3,1.5,1.75,2.0))
 _disabled_user_similarity_sface = Histogram("disabled_user_similarity_sface", "Euclidian (L2) distances of faces between most similar user and disabled one (for primary model: sface)", buckets=(0.1,0.2,0.3,0.4,0.5,0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95,1.0,1.06))

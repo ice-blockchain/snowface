@@ -39,6 +39,11 @@ if tf_version == 2:
     tf.get_logger().setLevel(logging.ERROR)
 # -----------------------------------
 
+represent_metric = None
+
+def set_represent_metric(m):
+    global represent_metric
+    represent_metric = m
 
 def build_model(model_name):
     """
@@ -149,21 +154,21 @@ def verify(
     # --------------------------------
     if target_size is None:
         target_size = functions.find_target_size(model_name=model_name)
-
+    if type(detector_backend) == str:
+        detector_backend = (detector_backend,detector_backend)
     # img pairs might have many faces
     img1_objs = functions.extract_faces(
         img=img1_path,
         target_size=target_size,
-        detector_backend=detector_backend,
+        detector_backend=detector_backend[0],
         grayscale=False,
         enforce_detection=enforce_detection,
         align=align,
     )
-
     img2_objs = functions.extract_faces(
         img=img2_path,
         target_size=target_size,
-        detector_backend=detector_backend,
+        detector_backend=detector_backend[1],
         grayscale=False,
         enforce_detection=enforce_detection,
         align=align,
@@ -694,17 +699,23 @@ def represent(
         img_region = [0, 0, img.shape[1], img.shape[0]]
         img_objs = [(img, img_region, 0)]
     # ---------------------------------
-
-    for img, region, confidence in img_objs:
-        # custom normalization
-        img = functions.normalize_input(img=img, normalization=normalization)
-        # represent
+    def represent_with_model(model, img):
         if "keras" in str(type(model)):
-            # new tf versions show progress bar and it is annoying
+        # new tf versions show progress bar and it is annoying
             embedding = model.predict(img, verbose=0)[0].tolist()
         else:
             # SFace and Dlib are not keras models and no verbose arguments
             embedding = model.predict(img)[0].tolist()
+        return embedding
+    for img, region, confidence in img_objs:
+        # custom normalization
+        img = functions.normalize_input(img=img, normalization=normalization)
+        if represent_metric is not None:
+            with represent_metric.labels(model = model_name).time():
+                # represent
+                embedding = represent_with_model(model,img)
+        else:
+            embedding = represent_with_model(model,img)
 
         resp_obj = {}
         resp_obj["embedding"] = embedding
