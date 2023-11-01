@@ -13,7 +13,7 @@ from tqdm import tqdm
 import cv2
 import tensorflow as tf
 from deprecated import deprecated
-
+import threading
 # package dependencies
 from deepface.basemodels import (
     VGGFace,
@@ -71,18 +71,21 @@ def build_model(model_name):
         "Race": Race.loadModel,
     }
 
-    if not "model_obj" in globals():
-        model_obj = {}
+    local = threading.local()
+    if getattr(local, 'model_obj', None) is None:
+        local.model_obj = {}
 
-    if not model_name in model_obj:
+    built_models = list(local.model_obj.keys())
+    if model_name not in built_models:
         model = models.get(model_name)
+
         if model:
             model = model()
-            model_obj[model_name] = model
+            local.model_obj[model_name] = model
         else:
-            raise ValueError(f"Invalid model_name passed - {model_name}")
+            raise ValueError("invalid model_name passed - " + model_name)
 
-    return model_obj[model_name]
+    return local.model_obj[model_name]
 
 
 def verify(
