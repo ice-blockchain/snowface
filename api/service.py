@@ -332,7 +332,10 @@ def extract_and_compare_metadatas(user_reference_metadata: list, pics, model):
     except ValueError as e:
         raise exceptions.NoFaces("No faces detected")
     pics[-1] = face['face']
-    metadata_to_compare.extend([distance.l2_normalize(m.predict(np.expand_dims(p[::2,::2], axis=0))[0].tolist()) for p in pics])
+    def predict_pic(p):
+        with metrics.represent_time.labels(model = model).time():
+            return distance.l2_normalize(m.predict(np.expand_dims(p[::2,::2], axis=0))[0].tolist())
+    metadata_to_compare.extend([predict_pic(p) for p in pics])
     threshold = _similarity_threshold(model)
     bestIndex, euclidian, bestNotFittingIndex = compare_metadatas(metadata_to_compare, threshold)
     return metadata_to_compare, bestIndex, euclidian, threshold, bestNotFittingIndex
