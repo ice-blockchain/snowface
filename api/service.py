@@ -255,27 +255,10 @@ def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_
     pics = [loadImageFromStream(p) for p in raw_pics]
     md, bestIndex, euclidian,threshold, bestNotFittingIndex = extract_and_compare_metadatas(md_vector, pics,_model)
     if bestIndex == -1:
-        # user is not the same as on primary photo - let's try with more complex but slower model as well to reduce false-negatives
-        primary_photo = get_primary_photo(user_id)
-        md_vector = distance.l2_normalize(DeepFace.represent(
-            img_path=loadImageFromStream(io.BytesIO(primary_photo)),
-            model_name=_model_fallback,
-            enforce_detection=True,
-            detector_backend=_detector_high_quality,
-            align=True,
-            normalization="base",
-        )[0]["embedding"])
         euclidian_sface = euclidian
         sface_threshold = threshold
-
-        bestIndex, euclidian, bestNotFittingIndex = compare_metadatas([md_vector,distance.l2_normalize(DeepFace.represent(
-            img_path=pics[bestNotFittingIndex],
-            model_name=_model_fallback,
-            enforce_detection=True,
-            detector_backend=_detector_high_quality,
-            align=True,
-            normalization="base",
-        )[0]["embedding"])], _similarity_threshold(_model_fallback))
+        #bestIndex, euclidian, threshold, bestNotFittingIndex = recheck_similarity_using_arcface(md_vector, user_id,pics,md,bestNotFittingIndex)
+        bestIndex, euclidian, threshold, bestNotFittingIndex = recheck_similarity_using_sface(md_vector, user_id, pics, md, bestNotFittingIndex)
         if bestIndex == -1:
             metrics.register_similarity_failure(euclidian_sface,euclidian)
             raise exceptions.NotSameUser(f"user mismatch for user_id {user_id}: distance is greater than {sface_threshold} {threshold}: {euclidian_sface} {euclidian}")
@@ -295,22 +278,57 @@ def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_
             raise e # goes to 5xx
         return bestIndex, euclidian, upd["uploaded_at"]
 
+def recheck_similarity_using_sface(primary_md, user_id: str, pics: list, sface_metadatas: list, bestNotFittingIndex: int):
+    secondary_md = _get_secondary_metadata(user_id)
+    threshold = _similarity_threshold(_model)
+    if not secondary_md:
+        return bestNotFittingIndex, 0, threshold, bestNotFittingIndex
+    new_pic_md = distance.l2_normalize(DeepFace.represent(
+        img_path=pics[bestNotFittingIndex],
+        model_name=_model,
+        enforce_detection=True,
+        detector_backend=_detector_low_quality,
+        align=True,
+        normalization="base",
+    )[0]["embedding"])
+    bestIndex, euclidian, bestNotFittingIndex = compare_metadatas([secondary_md["face_metadata"], new_pic_md], threshold)
+    if bestIndex == -1:
+        bestIndex, euclidian, bestNotFittingIndex = compare_metadatas([primary_md, new_pic_md], threshold)
+    return bestIndex, euclidian, threshold, bestNotFittingIndex
+
+
+def recheck_similarity_using_arcface(primary_md, user_id: str, pics: list,sface_metadatas: list, bestNotFittingIndex: int):
+    # user is not the same as on primary photo - let's try with more complex but slower model as well to reduce false-negatives
+    primary_photo = get_primary_photo(user_id)
+    t = time.time()
+    md_vector = distance.l2_normalize(DeepFace.represent(
+        img_path=loadImageFromStream(io.BytesIO(primary_photo)),
+        model_name=_model_fallback,
+        enforce_detection=True,
+        detector_backend=_detector_high_quality,
+        align=True,
+        normalization="base",
+    )[0]["embedding"])
+    threshold = _similarity_threshold(_model_fallback)
+    bestIndex, euclidian, bestNotFittingIndex = compare_metadatas([md_vector,distance.l2_normalize(DeepFace.represent(
+        img_path=pics[bestNotFittingIndex],
+        model_name=_model_fallback,
+        enforce_detection=True,
+        detector_backend=_detector_high_quality,
+        align=True,
+        normalization="base",
+    )[0]["embedding"])], threshold)
+    return bestIndex, euclidian, threshold, bestNotFittingIndex
 
 def extract_and_compare_metadatas(user_reference_metadata: list, pics, model):
     metadata_to_compare = [user_reference_metadata]
+    m = DeepFace.build_model(model)
     try:
-        metadata_to_compare.extend([
-            distance.l2_normalize(DeepFace.represent(
-                img_path=p,
-                model_name=model,
-                enforce_detection=False,
-                detector_backend=_detector_low_quality,
-                align=True,
-                normalization="base",
-            )[0]["embedding"]) for p in pics
-        ])
+        face = DeepFace.extract_faces(img_path=pics[-1][::2,::2],target_size=(112,112),detector_backend=_detector_low_quality,align=False)[0]
     except ValueError as e:
         raise exceptions.NoFaces("No faces detected")
+    pics[-1] = face['face']
+    metadata_to_compare.extend([distance.l2_normalize(m.predict(np.expand_dims(p[::2,::2], axis=0))[0].tolist()) for p in pics])
     threshold = _similarity_threshold(model)
     bestIndex, euclidian, bestNotFittingIndex = compare_metadatas(metadata_to_compare, threshold)
     return metadata_to_compare, bestIndex, euclidian, threshold, bestNotFittingIndex
@@ -324,7 +342,7 @@ def compare_metadatas(metadatas: list, threshold: float):
     indexes = [(distances.index(d), m := min(d,m)) for d in distances if d <= threshold]
     indexes.sort(key=lambda x: x[1])
     if len(indexes) != len(metadatas) and len(indexes) < _min_images_with_emotions_to_proceed:
-        return -1, min([i for i in distances if i > threshold]), np.argmin(distances)
+        return -1, min([i for i in distances if i > threshold]), int(np.argmin(distances))
     else:
         return indexes[0][0], m, indexes[0][0]
 
