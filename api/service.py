@@ -283,14 +283,17 @@ def recheck_similarity_using_sface(primary_md, user_id: str, pics: list, sface_m
     threshold = _similarity_threshold(_model)
     if not secondary_md:
         return bestNotFittingIndex, 0, threshold, bestNotFittingIndex
-    new_pic_md = distance.l2_normalize(DeepFace.represent(
-        img_path=pics[bestNotFittingIndex],
-        model_name=_model,
-        enforce_detection=True,
-        detector_backend=_detector_low_quality,
-        align=True,
-        normalization="base",
-    )[0]["embedding"])
+    try:
+        new_pic_md = distance.l2_normalize(DeepFace.represent(
+            img_path=pics[bestNotFittingIndex],
+            model_name=_model,
+            enforce_detection=True,
+            detector_backend=_detector_low_quality,
+            align=True,
+            normalization="base",
+        )[0]["embedding"])
+    except ValueError as e:
+        raise exceptions.NoFaces("No faces detected")
     bestIndex, euclidian, bestNotFittingIndex = compare_metadatas([secondary_md["face_metadata"], new_pic_md], threshold)
     if bestIndex == -1:
         bestIndex, euclidian, bestNotFittingIndex = compare_metadatas([primary_md, new_pic_md], threshold)
@@ -324,7 +327,7 @@ def extract_and_compare_metadatas(user_reference_metadata: list, pics, model):
     metadata_to_compare = [user_reference_metadata]
     m = DeepFace.build_model(model)
     try:
-        face = DeepFace.extract_faces(img_path=pics[-1][::2,::2],target_size=(112,112),detector_backend=_detector_low_quality,align=False)[0]
+        face = DeepFace.extract_faces(img_path=pics[-1],target_size=(224,224),detector_backend=_detector_low_quality,align=False)[0]
     except ValueError as e:
         raise exceptions.NoFaces("No faces detected")
     pics[-1] = face['face']
