@@ -166,7 +166,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
                     align=True
                 )
                 primary_distance = res['distance']
-                if res["verified"] and res['distance'] <= current_app.config["PRIMARY_PHOTO_ARCFACE_DISTANCE"]:
+                if res['distance'] <= current_app.config["PRIMARY_PHOTO_ARCFACE_DISTANCE"]:
                     secondary_pic = get_secondary_photo(similar_users[0])
                     if not secondary_pic:
                         _disable_user(now, user_id, photo_stream.stream)
@@ -189,7 +189,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
                             normalization="base",
                             align=True
                         )
-                        if secondary_res["verified"] and secondary_res['distance'] <= current_app.config["PRIMARY_PHOTO_ARCFACE_DISTANCE"]:
+                        if secondary_res['distance'] <= current_app.config["PRIMARY_PHOTO_ARCFACE_DISTANCE"]:
                             _disable_user(now, user_id, photo_stream.stream)
                             metrics.register_disabled_user(min(euclidian,distances[0]), min(primary_distance,secondary_res['distance']))
                             callback(
@@ -212,7 +212,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
                 normalization="base",
                 align=True
             )
-            if res["verified"] and res['distance'] <= current_app.config["PRIMARY_PHOTO_ARCFACE_DISTANCE"]:
+            if res['distance'] <= current_app.config["PRIMARY_PHOTO_ARCFACE_DISTANCE"]:
                 disabled = _disable_user(now,user_id, photo_stream.stream)
                 if disabled:
                     metrics.register_disabled_user(distances[0], res['distance'])
