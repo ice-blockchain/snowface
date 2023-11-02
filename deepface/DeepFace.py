@@ -75,22 +75,18 @@ def build_model(model_name):
         "Gender": Gender.loadModel,
         "Race": Race.loadModel,
     }
-
-    local = threading.local()
-    if getattr(local, 'model_obj', None) is None:
-        local.model_obj = {}
-
-    built_models = list(local.model_obj.keys())
-    if model_name not in built_models:
+    if not "model_obj" in globals():
+        model_obj = {}
+    thrName = threading.currentThread().getName()
+    if not model_name+thrName in model_obj:
         model = models.get(model_name)
-
         if model:
             model = model()
-            local.model_obj[model_name] = model
+            model_obj[model_name+thrName] = model
         else:
-            raise ValueError("invalid model_name passed - " + model_name)
+            raise ValueError(f"Invalid model_name passed - {model_name}")
 
-    return local.model_obj[model_name]
+    return model_obj[model_name+thrName]
 
 
 def verify(
