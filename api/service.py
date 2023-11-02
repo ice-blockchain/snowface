@@ -288,7 +288,7 @@ def recheck_similarity_using_sface(primary_md, user_id: str, pics: list, sface_m
         new_pic_md = distance.l2_normalize(DeepFace.represent(
             img_path=pics[bestNotFittingIndex],
             model_name=_model,
-            enforce_detection=True,
+            enforce_detection=False,
             detector_backend=_detector_low_quality,
             align=True,
             normalization="base",

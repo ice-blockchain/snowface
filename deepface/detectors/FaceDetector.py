@@ -25,21 +25,20 @@ def build_model(detector_backend):
         "yolov8": YoloWrapper.build_model,
         "yunet": YunetWrapper.build_model,
     }
-    local = threading.local()
-    if getattr(local, 'face_detector_obj', None) is None:
-        local.face_detector_obj = {}
-
-    built_models = list(local.face_detector_obj.keys())
-    if detector_backend not in built_models:
+    if not "face_detector_obj" in globals():
+        face_detector_obj = {}
+    thrName = threading.currentThread().getName()
+    built_models = list(face_detector_obj.keys())
+    if detector_backend+thrName not in built_models:
         face_detector = backends.get(detector_backend)
 
         if face_detector:
             face_detector = face_detector()
-            local.face_detector_obj[detector_backend] = face_detector
+            face_detector_obj[detector_backend+thrName] = face_detector
         else:
             raise ValueError("invalid detector_backend passed - " + detector_backend)
 
-    return local.face_detector_obj[detector_backend]
+    return face_detector_obj[detector_backend+thrName]
 
 
 def detect_face(face_detector, detector_backend, img, align=True):
