@@ -56,6 +56,7 @@ def update_emotions_and_best_score(usr,emotions: list, emotion_sequence: int, be
     if last_negative_request_at or usr['last_negative_request_at']:
         r.hdel(_expirationKey(usr["session_started_at"],current_app.config["SESSION_DURATION"]),usr['user_id'])
     return r.hmset(_userKey(usr['user_id']),mapping={
+        "user_id": usr['user_id'],
         "emotions": emotions,
         "last_negative_request_at": last_negative_request_at or usr['last_negative_request_at'],
         "emotion_sequence": emotion_sequence,
@@ -74,7 +75,7 @@ def update_last_negative_request_at(usr, now: int):
 
 def get_user(user_id: str, search_growing = True):
     r = _get_client()
-    hkeys = [ "user_id",
+    hkeys = [
               "session_id",
               "emotions",
               "session_started_at",
@@ -82,9 +83,8 @@ def get_user(user_id: str, search_growing = True):
               "last_negative_request_at",
               "emotion_sequence",
               "best_pictures_score",
-              ]
+            ]
     mappers = {
-        "user_id": lambda x: str(x, encoding = "utf-8"),
         "session_id": lambda x: str(x, encoding = "utf-8") if x else "",
         "emotions": lambda x: str(x, encoding = "utf-8") if x else "",
         "session_started_at": int,
@@ -107,8 +107,9 @@ def get_user(user_id: str, search_growing = True):
         res['last_negative_request_at'] = 0
     for k in res:
         res[k] = mappers[k](res[k])
-    return res
+    res['user_id'] = user_id
 
+    return res
 
 def get_expired_sessions(now, duration):
     r = _get_client()
