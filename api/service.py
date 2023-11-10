@@ -159,7 +159,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
                 res = DeepFace.verify(
                     img1_path=img,
                     img2_path=loadImageFromStream(io.BytesIO(simiar_user_picture)),
-                    detector_backend=("skip", "skip"),
+                    detector_backend=("skip",_detector_high_quality),
                     model_name=_model_fallback,
                     distance_metric=_similarity_metric,
                     normalization="base",
@@ -183,7 +183,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
                         secondary_res = DeepFace.verify(
                             img1_path=img,
                             img2_path=loadImageFromStream(io.BytesIO(secondary_pic)),
-                            detector_backend=("skip", "skip"),
+                            detector_backend=("skip",_detector_high_quality),
                             model_name=_model_fallback,
                             distance_metric=_similarity_metric,
                             normalization="base",
@@ -206,7 +206,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
             res = DeepFace.verify(
                 img1_path=img,
                 img2_path=loadImageFromStream(io.BytesIO(simiar_user_picture)),
-                detector_backend=("skip", "skip"),
+                detector_backend=("skip", _detector_high_quality),
                 model_name=_model_fallback,
                 distance_metric=_similarity_metric,
                 normalization="base",
