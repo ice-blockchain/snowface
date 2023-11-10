@@ -73,6 +73,18 @@ def update_last_negative_request_at(usr, now: int):
     res = res and r.hdel(_expirationKey(usr["session_started_at"], current_app.config["SESSION_DURATION"]),usr['user_id'])
     return res
 
+def decrease_available_retries(usr, user_id):
+    r = _get_client()
+
+    available_retries = current_app.config["PRIMARY_PHOTO_RETRIES"] - 1
+    if usr is not None:
+        available_retries = usr["available_retries"] - 1
+
+    return r.hset(_userKey(user_id), mapping={
+        "user_id": user_id,
+        "available_retries": available_retries,
+    })
+
 def get_user(user_id: str, search_growing = True):
     r = _get_client()
     hkeys = [
@@ -83,6 +95,7 @@ def get_user(user_id: str, search_growing = True):
               "last_negative_request_at",
               "emotion_sequence",
               "best_pictures_score",
+              "available_retries"
             ]
     mappers = {
         "session_id": lambda x: str(x, encoding = "utf-8") if x else "",
@@ -92,6 +105,7 @@ def get_user(user_id: str, search_growing = True):
         "last_negative_request_at": int,
         "emotion_sequence": lambda x: int(x) if x else 0,
         "best_pictures_score": lambda x: x,
+        "available_retries": int,
     }
     res = r.hmget(_userKey(user_id),hkeys)
     if res.count(None) == len(hkeys):
@@ -105,6 +119,8 @@ def get_user(user_id: str, search_growing = True):
         res['disabled_at'] = 0
     if res.get('last_negative_request_at') is None:
         res['last_negative_request_at'] = 0
+    if res.get('available_retries') is None:
+        res['available_retries'] = 0
     for k in res:
         res[k] = mappers[k](res[k])
     res['user_id'] = user_id

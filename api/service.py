@@ -17,7 +17,7 @@ from faces import (
     update_secondary_metadata              as _update_secondary_metadata,
     find_similar_users                     as _find_similar_users,
     set_primary_metadata                   as _set_primary_metadata,
-    delete_metadatas                        as _delete_metadatas
+    delete_metadatas                       as _delete_metadatas
 )
 
 from users import (
@@ -27,7 +27,8 @@ from users import (
     update_emotions_and_best_score         as _update_emotions_and_best_score,
     remove_session                         as _remove_session,
     update_last_negative_request_at        as _update_last_negative_request_at,
-    get_expired_sessions                   as _get_expired_sessions
+    get_expired_sessions                   as _get_expired_sessions,
+    decrease_available_retries             as _decrease_available_retries
 )
 from PIL import Image
 import cv2
@@ -123,15 +124,7 @@ def init_models():
     except requests.RequestException as e:
         logging.error(e, exc_info=e)
 
-
-def set_primary_photo(current_user, user_id: str, photo_stream):
-    now = time.time_ns()
-    user = _get_user(user_id, search_growing=False)
-    if user is not None and user["disabled_at"] > 0:
-        raise exceptions.UserDisabled(f"User {user_id} was disabled at {user['disabled_at']}")
-    existing_md = _get_primary_metadata(user_id, search_growing=False)
-    if existing_md is not None:
-        raise exceptions.MetadataAlreadyExists(f"User {user_id} already owns primary face uploaded at {existing_md['uploaded_at']}")
+def set_primary_photo_internal(current_user, user_id: str, photo_stream, attempt):
     try:
         img = DeepFace.extract_faces(
             img_path=loadImageFromStream(photo_stream),
@@ -140,7 +133,8 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
             landmarks_verification=True,
             target_size=(640,640))[0]['face']
     except ValueError:
-        raise exceptions.NoFaces(f"No faces detected, userId: {user_id}")
+        raise exceptions.NoFaces(f"No faces detected, userId: {user_id}", sface_distance=None, arface_distance=None)
+
     md = distance.l2_normalize(DeepFace.represent(
         img_path=img,
         model_name=_model,
@@ -148,18 +142,19 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
         target_size=(640,640)
     )[0]["embedding"])
     threshold = current_app.config['PRIMARY_PHOTO_SFACE_DISTANCE']
-    similar_users, distances = _find_similar_users(user_id,md, threshold)
+    similar_users, distances = _find_similar_users(user_id, md, threshold)
+
     if similar_users[0] != user_id:
         # make sure it is not a false positive, let's check other picture as well
         secondary_md = _get_secondary_metadata(similar_users[0])
         if secondary_md:
             bestIndex, euclidian, _ = compare_metadatas([secondary_md["face_metadata"],md], threshold)
             if bestIndex != -1:
-                simiar_user_picture = get_primary_photo(similar_users[0])
+                similar_user_picture = get_primary_photo(similar_users[0])
                 res = DeepFace.verify(
                     img1_path=img,
-                    img2_path=loadImageFromStream(io.BytesIO(simiar_user_picture)),
-                    detector_backend=("skip",_detector_high_quality),
+                    img2_path=loadImageFromStream(io.BytesIO(similar_user_picture)),
+                    detector_backend=("skip", _detector_high_quality),
                     model_name=_model_fallback,
                     distance_metric=_similarity_metric,
                     normalization="base",
@@ -169,43 +164,38 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
                 if res['distance'] <= current_app.config["PRIMARY_PHOTO_ARCFACE_DISTANCE"]:
                     secondary_pic = get_secondary_photo(similar_users[0])
                     if not secondary_pic:
-                        _disable_user(now, user_id, photo_stream.stream)
-                        metrics.register_disabled_user(min(euclidian,distances[0]), min(primary_distance,res['distance']))
-                        callback(
-                            current_user=current_user,
-                            primary_md=None,
-                            secondary_md=None,
-                            user={"disabled_at": now}
+                        logging.info(f"[primary photo] Face {user_id}, attempt:{attempt} is matching with user {similar_users[0]}, distance ({distances[0]} {euclidian}) < {threshold}, ({primary_distance}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
+
+                        raise exceptions.NoFaces(
+                            message=f"[primary photo] Face {user_id} attempt:{attempt} is matching with user {similar_users[0]}, distance ({distances[0]} {euclidian}) < {threshold}, ({primary_distance}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}",
+                            sface_distance=min(euclidian, distances[0]),
+                            arface_distance=min(primary_distance, res['distance'])
                         )
-                        logging.info(f"Face {user_id} is matching with user {similar_users[0]}, distance ({distances[0]} {euclidian}) < {threshold}, ({primary_distance}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
-                        raise exceptions.UserDisabled(f"Face {user_id} is matching with user {similar_users[0]}, distance ({distances[0]} {euclidian}) < {threshold}, ({primary_distance}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
+
                     else:
                         secondary_res = DeepFace.verify(
                             img1_path=img,
                             img2_path=loadImageFromStream(io.BytesIO(secondary_pic)),
-                            detector_backend=("skip",_detector_high_quality),
+                            detector_backend=("skip", _detector_high_quality),
                             model_name=_model_fallback,
                             distance_metric=_similarity_metric,
                             normalization="base",
                             align=True
                         )
                         if secondary_res['distance'] <= current_app.config["PRIMARY_PHOTO_ARCFACE_DISTANCE"]:
-                            _disable_user(now, user_id, photo_stream.stream)
-                            metrics.register_disabled_user(min(euclidian,distances[0]), min(primary_distance,secondary_res['distance']))
-                            callback(
-                                current_user=current_user,
-                                primary_md=None,
-                                secondary_md=None,
-                                user={"disabled_at": now}
+                            logging.info(f"[secondary photo] Face {user_id}, attempt:{attempt} is matching with user {similar_users[0]}, distance ({distances[0]} {euclidian}) < {threshold}, ({primary_distance} {secondary_res['distance']}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
+
+                            raise exceptions.NoFaces(
+                                message=f"[secondary photo] Face {user_id} attempt:{attempt} is matching with user {similar_users[0]}, distance ({distances[0]} {euclidian}) < {threshold}, ({primary_distance} {secondary_res['distance']}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}",
+                                sface_distance=min(euclidian, distances[0]),
+                                arface_distance=min(primary_distance, secondary_res['distance'])
                             )
-                            logging.info(f"Face {user_id} is matching with user {similar_users[0]}, distance ({distances[0]} {euclidian}) < {threshold}, ({primary_distance} {secondary_res['distance']}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
-                            raise exceptions.UserDisabled(f"Face {user_id} is matching with user {similar_users[0]}, distance ({distances[0]} {euclidian}) < {threshold}, ({primary_distance} {secondary_res['distance']}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
         else:
             # that similar user dont have 2nd pic yet,but we can re-check with fallback model
-            simiar_user_picture = get_primary_photo(similar_users[0])
+            similar_user_picture = get_primary_photo(similar_users[0])
             res = DeepFace.verify(
                 img1_path=img,
-                img2_path=loadImageFromStream(io.BytesIO(simiar_user_picture)),
+                img2_path=loadImageFromStream(io.BytesIO(similar_user_picture)),
                 detector_backend=("skip", _detector_high_quality),
                 model_name=_model_fallback,
                 distance_metric=_similarity_metric,
@@ -213,17 +203,52 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
                 align=True
             )
             if res['distance'] <= current_app.config["PRIMARY_PHOTO_ARCFACE_DISTANCE"]:
-                disabled = _disable_user(now,user_id, photo_stream.stream)
-                if disabled:
-                    metrics.register_disabled_user(distances[0], res['distance'])
-                    callback(
-                        current_user=current_user,
-                        primary_md=None,
-                        secondary_md=None,
-                        user={"disabled_at": now}
-                    )
-                    logging.info(f"Face {user_id} is matching with user {similar_users[0]}, distance {distances[0]} < {threshold}, {res['distance']} < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
-                    raise exceptions.UserDisabled(f"Face {user_id} is matching with user {similar_users[0]}, distance {distances[0]} < {threshold}, {res['distance']} < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
+                logging.info(f"[primary photo, no secondary] Face {user_id}, attempt:{attempt} is matching with user {similar_users[0]}, distance {distances[0]} < {threshold}, {res['distance']} < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
+
+                raise exceptions.NoFaces(
+                    message=f"[primary photo, no secondary] Face {user_id}, attempt:{attempt} is matching with user {similar_users[0]}, distance {distances[0]} < {threshold}, {res['distance']} < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}",
+                    sface_distance=distances[0],
+                    arface_distance=res['distance']
+                )
+
+    return md
+
+def set_primary_photo(current_user, user_id: str, photo_stream):
+    now = time.time_ns()
+    user = _get_user(user_id, search_growing=False)
+    if user is not None and user["disabled_at"] > 0:
+        raise exceptions.UserDisabled(f"User {user_id} was disabled at {user['disabled_at']}")
+
+    existing_md = _get_primary_metadata(user_id, search_growing=False)
+    if existing_md is not None:
+        raise exceptions.MetadataAlreadyExists(f"User {user_id} already owns primary face uploaded at {existing_md['uploaded_at']}")
+
+    if user is not None:
+        attempt = user["available_retries"]
+    else:
+        attempt = current_app.config["PRIMARY_PHOTO_RETRIES"]
+
+    try:
+        md = set_primary_photo_internal(current_user=current_user, user_id=user_id, photo_stream=photo_stream, attempt=current_app.config["PRIMARY_PHOTO_RETRIES"] - attempt + 1)
+    except exceptions.NoFaces as e:
+        _decrease_available_retries(user, user_id)
+
+        if user is not None and attempt <= 1:
+            disabled = _disable_user(now,user_id, photo_stream.stream)
+            if disabled:
+                metrics.register_disabled_user(e.sface_distance, e.arface_distance)
+
+                callback(
+                    current_user=current_user,
+                    primary_md=None,
+                    secondary_md=None,
+                    user={"disabled_at": now}
+                )
+
+                raise exceptions.UserDisabled(f"Face {user_id}, attempt:{attempt}, distance {e.sface_distance} < {current_app.config['PRIMARY_PHOTO_SFACE_DISTANCE']}, {e.arface_distance} < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
+
+        raise e
+
     url = put_primary_photo(user_id,photo_stream.stream)
     upd, rows = _set_primary_metadata(now, user_id, md, url)
     if rows > 0:
@@ -294,7 +319,7 @@ def recheck_similarity_using_sface(primary_md, user_id: str, pics: list, sface_m
             normalization="base",
         )[0]["embedding"])
     except ValueError as e:
-        raise exceptions.NoFaces("No faces detected")
+        raise exceptions.NoFaces("No faces detected", sface_distance=None, arface_distance=None)
     bestIndex, euclidian, bestNotFittingIndex = compare_metadatas([secondary_md["face_metadata"], new_pic_md], threshold)
     if bestIndex == -1:
         bestIndex, euclidian, bestNotFittingIndex = compare_metadatas([primary_md, new_pic_md], threshold)
@@ -330,7 +355,7 @@ def extract_and_compare_metadatas(user_reference_metadata: list, pics, model):
     try:
         face = DeepFace.extract_faces(img_path=pics[-1],target_size=(224,224),detector_backend=_detector_low_quality,align=False)[0]
     except ValueError as e:
-        raise exceptions.NoFaces("No faces detected")
+        raise exceptions.NoFaces("No faces detected", sface_distance=None, arface_distance=None)
     pics[-1] = face['face']
     def predict_pic(p):
         with metrics.represent_time.labels(model = model).time():
@@ -530,7 +555,7 @@ def _predict(usr, model, images, now, awaited_emotion):
         face_img_list.append(loaded_image)
     try: DeepFace.extract_faces(face_img_list[1+int(len(face_img_list)/2)], detector_backend=_detector_low_quality, enforce_detection=True, landmarks_verification=False)
     except ValueError as e:
-        raise exceptions.NoFaces(f"No faces detected, userId: {usr['user_id']}")
+        raise exceptions.NoFaces(f"No faces detected, userId: {usr['user_id']}", sface_distance=None, arface_distance=None)
     awaited_idx = model.class_to_idx[awaited_emotion]
     emotions, scores = model.predict_multi_emotions(face_img_list=face_img_list, logits = False)
 

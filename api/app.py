@@ -51,6 +51,7 @@ def create_app():
     app.config['PRIMARY_PHOTO_ERROR_LIMIT'] = os.environ.get("PRIMARY_PHOTO_ERROR_LIMIT")
     app.config["PRIMARY_PHOTO_SFACE_DISTANCE"] = float(os.environ.get('PRIMARY_PHOTO_SFACE_DISTANCE', findThreshold(_model,_similarity_metric)))
     app.config["PRIMARY_PHOTO_ARCFACE_DISTANCE"] = float(os.environ.get('PRIMARY_PHOTO_ARCFACE_DISTANCE', findThreshold(_model_fallback,_similarity_metric)))
+    app.config["PRIMARY_PHOTO_RETRIES"] = int(os.environ.get('PRIMARY_PHOTO_RETRIES', 3))
 
     init_rate_limiters(app)
 
