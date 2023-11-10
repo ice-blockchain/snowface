@@ -19,8 +19,10 @@ class UserNotFound(Exception):
         super().__init__(message)
 
 class NoFaces(Exception):
-    def __init__(self, message):
+    def __init__(self, message, sface_distance, arface_distance):
         super().__init__(message)
+        self.sface_distance = sface_distance
+        self.arface_distance = arface_distance
 
 class UpsertException(Exception):
     def __init__(self, message):
