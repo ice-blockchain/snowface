@@ -126,21 +126,24 @@ def init_models():
 
 def set_primary_photo_internal(current_user, user_id: str, photo_stream, attempt):
     try:
-        img = DeepFace.extract_faces(
+        img_objs, resp_objs = DeepFace.extract_faces_custom(
             img_path=loadImageFromStream(photo_stream),
             detector_backend=_detector_high_quality,
             align=True,
             landmarks_verification=True,
-            target_size=(640,640))[0]['face']
+            target_size=(640,640))
     except ValueError:
         raise exceptions.NoFaces(f"No faces detected, userId: {user_id}", sface_distance=None, arface_distance=None)
 
+    img_to_represent = resp_objs[0]['face']
     md = distance.l2_normalize(DeepFace.represent(
-        img_path=img,
-        model_name=_model,
-        detector_backend="skip",
-        target_size=(640,640)
-    )[0]["embedding"])
+            img_path=img_to_represent,
+            model_name=_model,
+            detector_backend="skip",
+            normalization="base",
+            target_size=(640,640),
+        )[0]["embedding"])
+
     threshold = current_app.config['PRIMARY_PHOTO_SFACE_DISTANCE']
     similar_users, distances = _find_similar_users(user_id, md, threshold)
 
@@ -152,7 +155,7 @@ def set_primary_photo_internal(current_user, user_id: str, photo_stream, attempt
             if bestIndex != -1:
                 similar_user_picture = get_primary_photo(similar_users[0])
                 res = DeepFace.verify(
-                    img1_path=img,
+                    img1_path=img_objs,
                     img2_path=loadImageFromStream(io.BytesIO(similar_user_picture)),
                     detector_backend=("skip", _detector_high_quality),
                     model_name=_model_fallback,
@@ -174,7 +177,7 @@ def set_primary_photo_internal(current_user, user_id: str, photo_stream, attempt
 
                     else:
                         secondary_res = DeepFace.verify(
-                            img1_path=img,
+                            img1_path=img_objs,
                             img2_path=loadImageFromStream(io.BytesIO(secondary_pic)),
                             detector_backend=("skip", _detector_high_quality),
                             model_name=_model_fallback,
@@ -194,7 +197,7 @@ def set_primary_photo_internal(current_user, user_id: str, photo_stream, attempt
             # that similar user dont have 2nd pic yet,but we can re-check with fallback model
             similar_user_picture = get_primary_photo(similar_users[0])
             res = DeepFace.verify(
-                img1_path=img,
+                img1_path=img_objs,
                 img2_path=loadImageFromStream(io.BytesIO(similar_user_picture)),
                 detector_backend=("skip", _detector_high_quality),
                 model_name=_model_fallback,
@@ -245,7 +248,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
                     user={"disabled_at": now}
                 )
 
-                raise exceptions.UserDisabled(f"Face {user_id}, attempt:{attempt}, distance {e.sface_distance} < {current_app.config['PRIMARY_PHOTO_SFACE_DISTANCE']}, {e.arface_distance} < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
+                raise exceptions.UserDisabled(f"Face {user_id}, attempt:{current_app.config['PRIMARY_PHOTO_RETRIES']}, distance {e.sface_distance} < {current_app.config['PRIMARY_PHOTO_SFACE_DISTANCE']}, {e.arface_distance} < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
 
         raise e
 
