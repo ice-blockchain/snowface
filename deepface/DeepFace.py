@@ -151,16 +151,20 @@ def verify(
     if target_size is None:
         target_size = functions.find_target_size(model_name=model_name)
     if type(detector_backend) == str:
-        detector_backend = (detector_backend,detector_backend)
+        detector_backend = (detector_backend, detector_backend)
     # img pairs might have many faces
-    img1_objs = functions.extract_faces(
-        img=img1_path,
-        target_size=target_size,
-        detector_backend=detector_backend[0],
-        grayscale=False,
-        enforce_detection=enforce_detection,
-        align=align,
-    )
+    if detector_backend[0] != "skip":
+        img1_objs = functions.extract_faces(
+            img=img1_path,
+            target_size=target_size,
+            detector_backend=detector_backend[0],
+            grayscale=False,
+            enforce_detection=enforce_detection,
+            align=align,
+        )
+    else:
+        img1_objs = img1_path
+
     img2_objs = functions.extract_faces(
         img=img2_path,
         target_size=target_size,
@@ -776,6 +780,45 @@ def stream(
         time_threshold=time_threshold,
         frame_threshold=frame_threshold,
     )
+
+def extract_faces_custom(
+    img_path,
+    target_size=(224, 224),
+    detector_backend="opencv",
+    enforce_detection=True,
+    align=True,
+    grayscale=False,
+    landmarks_verification = False
+):
+    """
+    This function is similar to extract_faces function, but returns image objects
+    to optimize extract faces usages: to do it only 1 time.
+    """
+    resp_objs = []
+
+    img_objs = functions.extract_faces(
+        img=img_path,
+        target_size=target_size,
+        detector_backend=detector_backend,
+        grayscale=grayscale,
+        enforce_detection=enforce_detection,
+        align=align,
+        landmarks_verification=landmarks_verification
+    )
+
+    for img, region, confidence in img_objs:
+        resp_obj = {}
+
+        # discard expanded dimension
+        if len(img.shape) == 4:
+            img = img[0]
+
+        resp_obj["face"] = img[:, :, ::-1]
+        resp_obj["facial_area"] = region
+        resp_obj["confidence"] = confidence
+        resp_objs.append(resp_obj)
+
+    return img_objs, resp_objs
 
 
 def extract_faces(
