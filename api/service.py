@@ -150,49 +150,52 @@ def set_primary_photo_internal(current_user, user_id: str, photo_stream, attempt
     if similar_users[0] != user_id:
         # make sure it is not a false positive, let's check other picture as well
         secondary_md = _get_secondary_metadata(similar_users[0])
+
         if secondary_md:
-            bestIndex, euclidian, _ = compare_metadatas([secondary_md["face_metadata"],md], threshold)
-            if bestIndex != -1:
-                similar_user_picture = get_primary_photo(similar_users[0])
-                res = DeepFace.verify(
-                    img1_path=img_objs,
-                    img2_path=loadImageFromStream(io.BytesIO(similar_user_picture)),
-                    detector_backend=("skip", _detector_high_quality),
-                    model_name=_model_fallback,
-                    distance_metric=_similarity_metric,
-                    normalization="base",
-                    align=True
-                )
-                primary_distance = res['distance']
-                if res['distance'] <= current_app.config["PRIMARY_PHOTO_ARCFACE_DISTANCE"]:
-                    secondary_pic = get_secondary_photo(similar_users[0])
-                    if not secondary_pic:
-                        logging.info(f"[primary photo] Face {user_id}, attempt:{attempt} is matching with user {similar_users[0]}, distance ({distances[0]} {euclidian}) < {threshold}, ({primary_distance}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
+            similar_user_picture = get_primary_photo(similar_users[0])
+            res = DeepFace.verify(
+                img1_path=img_objs,
+                img2_path=loadImageFromStream(io.BytesIO(similar_user_picture)),
+                detector_backend=("skip", _detector_high_quality),
+                model_name=_model_fallback,
+                distance_metric=_similarity_metric,
+                normalization="base",
+                align=True
+            )
+
+            primary_distance = res['distance']
+            if res['distance'] <= current_app.config["PRIMARY_PHOTO_ARCFACE_DISTANCE"]:
+                secondary_pic = get_secondary_photo(similar_users[0])
+                if not secondary_pic:
+                    logging.info(f"[primary photo] Face {user_id}, attempt:{attempt} is matching with user {similar_users[0]}, distance {distances[0]} < {threshold}, ({primary_distance}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
+
+                    raise exceptions.NoFaces(
+                        message=f"[primary photo] Face {user_id} attempt:{attempt} is matching with user {similar_users[0]}, distance {distances[0]} < {threshold}, ({primary_distance}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}",
+                        sface_distance=distances[0],
+                        arface_distance=min(primary_distance, res['distance'])
+                    )
+                else:
+                    secondary_res = DeepFace.verify(
+                        img1_path=img_objs,
+                        img2_path=loadImageFromStream(io.BytesIO(secondary_pic)),
+                        detector_backend=("skip", _detector_high_quality),
+                        model_name=_model_fallback,
+                        distance_metric=_similarity_metric,
+                        normalization="base",
+                        align=True
+                    )
+                    if secondary_res['distance'] <= current_app.config["PRIMARY_PHOTO_ARCFACE_DISTANCE"]:
+                        logging.info(f"[secondary photo] Face {user_id}, attempt:{attempt} is matching with user {similar_users[0]}, distance ({distances[0]}) < {threshold}, ({primary_distance} {secondary_res['distance']}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
 
                         raise exceptions.NoFaces(
-                            message=f"[primary photo] Face {user_id} attempt:{attempt} is matching with user {similar_users[0]}, distance ({distances[0]} {euclidian}) < {threshold}, ({primary_distance}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}",
-                            sface_distance=min(euclidian, distances[0]),
-                            arface_distance=min(primary_distance, res['distance'])
+                            message=f"[secondary photo] Face {user_id} attempt:{attempt} is matching with user {similar_users[0]}, distance ({distances[0]}) < {threshold}, ({primary_distance} {secondary_res['distance']}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}",
+                            sface_distance=distances[0],
+                            arface_distance=min(primary_distance, secondary_res['distance'])
                         )
-
                     else:
-                        secondary_res = DeepFace.verify(
-                            img1_path=img_objs,
-                            img2_path=loadImageFromStream(io.BytesIO(secondary_pic)),
-                            detector_backend=("skip", _detector_high_quality),
-                            model_name=_model_fallback,
-                            distance_metric=_similarity_metric,
-                            normalization="base",
-                            align=True
-                        )
-                        if secondary_res['distance'] <= current_app.config["PRIMARY_PHOTO_ARCFACE_DISTANCE"]:
-                            logging.info(f"[secondary photo] Face {user_id}, attempt:{attempt} is matching with user {similar_users[0]}, distance ({distances[0]} {euclidian}) < {threshold}, ({primary_distance} {secondary_res['distance']}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
-
-                            raise exceptions.NoFaces(
-                                message=f"[secondary photo] Face {user_id} attempt:{attempt} is matching with user {similar_users[0]}, distance ({distances[0]} {euclidian}) < {threshold}, ({primary_distance} {secondary_res['distance']}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}",
-                                sface_distance=min(euclidian, distances[0]),
-                                arface_distance=min(primary_distance, secondary_res['distance'])
-                            )
+                        logging.info(f"[secondary photo, positive arface] Face {user_id}, attempt:{attempt}: {similar_users[0]}, distance ({secondary_res['distance']}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
+            else:
+                logging.info(f"[primary photo, positive arface] Face {user_id}, attempt:{attempt}: {similar_users[0]}, distance ({res['distance']}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
         else:
             # that similar user dont have 2nd pic yet,but we can re-check with fallback model
             similar_user_picture = get_primary_photo(similar_users[0])
@@ -205,6 +208,7 @@ def set_primary_photo_internal(current_user, user_id: str, photo_stream, attempt
                 normalization="base",
                 align=True
             )
+
             if res['distance'] <= current_app.config["PRIMARY_PHOTO_ARCFACE_DISTANCE"]:
                 logging.info(f"[primary photo, no secondary] Face {user_id}, attempt:{attempt} is matching with user {similar_users[0]}, distance {distances[0]} < {threshold}, {res['distance']} < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
 
@@ -213,6 +217,8 @@ def set_primary_photo_internal(current_user, user_id: str, photo_stream, attempt
                     sface_distance=distances[0],
                     arface_distance=res['distance']
                 )
+            else:
+                logging.info(f"[primary photo, no secondary, positive arface] Face {user_id}, attempt:{attempt}: {similar_users[0]}, distance ({res['distance']}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
 
     return md
 
@@ -265,9 +271,11 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
             )
         except UnauthorizedFromWebhook as e:
             _delete_metadatas(user_id, [upd["user_picture_id"]])
+
             raise e
         except requests.RequestException as e:
             _delete_metadatas(user_id, [upd["user_picture_id"]])
+
             raise e # goes to 5xx
 
 def _disable_user(now, user_id, photo_content):
@@ -370,6 +378,7 @@ def extract_and_compare_metadatas(user_reference_metadata: list, pics, model):
 
 def _similarity_threshold(model: str):
     return current_app.config[f"SIMILARITY_{model.upper()}_DISTANCE"]
+
 def compare_metadatas(metadatas: list, threshold: float):
     normalizedRefMetadata = metadatas.pop(0)
     distances = [distance.findEuclideanDistance(normalizedRefMetadata, md) for md in metadatas]
