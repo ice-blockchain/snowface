@@ -31,6 +31,7 @@ _allowed_extensions = {'jpg', 'jpeg'}
 
 _primary_photo_rate_limiter = MovingWindowRateLimiter(storage=MemoryStorage())
 _primary_photo_rate_limiter_rate = None
+
 def init_rate_limiters(app):
     global _primary_photo_rate_limiter_rate
     if app.config['PRIMARY_PHOTO_ERROR_LIMIT']:
@@ -150,23 +151,30 @@ def similar(current_user, user_id):
 
         try:
             bestIndex, euclidian, updateTime = service.check_similarity_and_update_secondary_photo(current_user, user_id, request.files.getlist("image"))
+
             return  {"userId":user_id, "bestIndex":bestIndex, "distance": euclidian, "secondaryPhotoUpdatedAt":updateTime}
         except exceptions.MetadataNotFound as e:
             _log_error(current_user, e)
+
             return {"message": str(e), "code":_no_primary_metadata}, 400
         except exceptions.NotSameUser as e:
             _log_error(current_user, e)
+
             return {"message": str(e), "code":_user_not_the_same}, 400
         except exceptions.NoFaces as e:
             _log_error(current_user, e)
+
             return {"message": str(e), "code":_no_faces}, 400
         except webhook.UnauthorizedFromWebhook as e:
             return str(e), 401
         except Exception as e:
             _log_error(current_user, e, True)
+
             return {"message":"oops, an error occured"}, 500
+
 def _log_error(current_user: Token, e: Exception, unexpected = False):
     logging.error(f"[U:{current_user.user_id}] "+str(e), exc_info=e if unexpected else None)
+
 @blueprint.route("/v1w/face-auth/primary_photo/<user_id>", methods=["POST"])
 @auth_required
 def primary_photo(current_user, user_id):
@@ -177,20 +185,26 @@ def primary_photo(current_user, user_id):
         try:
             if _primary_photo_rate_limiter_rate is not None and not _primary_photo_rate_limiter.test(_primary_photo_rate_limiter_rate, user_id): # global, should it be per user_id?
                 return {"message": f"rate limit for errors {_primary_photo_rate_limiter_rate} exceeded", "code":_rate_limit_exceeded}, 429
+
             service.set_primary_photo(current_user, user_id, request.files["image"])
+
             return ""
         except exceptions.NoFaces as e:
             _log_error(current_user, e)
             if _primary_photo_rate_limiter_rate is not None:
                 _primary_photo_rate_limiter.hit(_primary_photo_rate_limiter_rate, user_id)
+
             return {"message": str(e), "code":_no_faces}, 400
         except exceptions.MetadataAlreadyExists as e:
             _log_error(current_user, e)
+
             if _primary_photo_rate_limiter_rate is not None:
                 _primary_photo_rate_limiter.hit(_primary_photo_rate_limiter_rate, user_id)
+
             return {"message": str(e), "code":_already_uploaded}, 409
         except exceptions.UserDisabled as e:
             _log_error(current_user, e)
+
             return {"message": str(e), "code":_user_disabled}, 403
         except webhook.UnauthorizedFromWebhook as e:
             return str(e), 401
@@ -206,27 +220,34 @@ def delete_photos(current_user: Token):
         try:
             if current_app.config["MINIO_URI"]:
                 service.delete_user_photos_and_metadata(current_user)
+
                 return "", 200
             else:
                 service.delete_temporary_user_data(current_user.user_id)
+
                 return service.proxy_delete(current_user)
         except exceptions.MetadataNotFound as e:
             _log_error(current_user, e)
+
             return "", 204
         except webhook.UnauthorizedFromWebhook as e:
             return str(e), 401
         except Exception as e:
             _log_error(current_user, e, True)
+
             return {"message":"oops, an error occured"}, 500
+
 @blueprint.route("/v1r/face-auth/status/<user_id>", methods=["GET"])
 @auth_required
 def user_status(current_user, user_id):
     with REQUEST_TIME.labels(path="/v1w/face-auth/status").time():
         try:
             status = service.get_status(user_id)
+
             return status
         except Exception as e:
             _log_error(current_user, e, True)
+
             return {"message":"oops, an error occured"}, 500
 
 @blueprint.route("/v1w/face-auth/emotions/<user_id>", methods=["POST"])
@@ -261,8 +282,10 @@ def liveness(current_user, user_id, session_id):
         images = request.files.getlist("image")
         if images is None:
             return {"message": "you must pass images input", 'code': _invalid_properties}, 400
+
         if len(images) != 15:
             return {"message": f"wrong number of images: {len(images)}", 'code': _invalid_properties}, 400
+
         for img in images:
             if _allowed_file_format(img.filename) is False:
                 return {"message": "wrong image format", 'code': _invalid_properties}, 400
@@ -308,12 +331,15 @@ def enable_user(current_user: Token):
     data = request.get_json(force=True)
     if data is None:
         return {"message":"invalid json"}, 422
+
     user_id = data.get("userId",None)
     if not user_id:
         return {"message":"userId is missing"}, 422
+
     duplicated_face = data.get("duplicatedFace",None)
     try:
         service.reenable_user(current_user, user_id, duplicated_face)
+
         return "", 200
     except webhook.UnauthorizedFromWebhook as e:
         return str(e), 401
@@ -326,6 +352,7 @@ metricsauth = HTTPBasicAuth()
 @metricsauth.verify_password
 def verify_password(username, password):
     return username == current_app.config["METRICS_USER"] and password == current_app.config['METRICS_PASSWORD']
+
 @blueprint.route("/metrics")
 @metricsauth.login_required
 def metrics():
@@ -333,6 +360,7 @@ def metrics():
         return "metrics disabled", 403
     data = latest()
     return Response(data, mimetype=CONTENT_TYPE_LATEST)
+
 @blueprint.route("/health-check")
 def healthcheck():
     timeout = 30
@@ -341,7 +369,9 @@ def healthcheck():
         redis_ping()
         if current_app.config['MINIO_URI']:
             minio_ping()
-        return "{}",200
+
+        return "{}", 200
     except Exception as e:
         logging.error(f"[health-check]: {str(e)}", exc_info=e)
-        return str(e),500
+
+        return str(e), 500

@@ -23,6 +23,7 @@ from faces import (
 from users import (
     update_user                            as _update_user,
     disable_user                           as db_disable_user,
+    rollback_disabled_user                 as _rollback_disabled_user,
     get_user                               as _get_user,
     update_emotions_and_best_score         as _update_emotions_and_best_score,
     remove_session                         as _remove_session,
@@ -73,8 +74,8 @@ def represent(img_path, model_name, detector_backend, enforce_detection, align):
         align=align,
     )
     result["results"] = embedding_objs
-    return result
 
+    return result
 
 def verify(
     img1_path, img2_path, model_name, detector_backend, distance_metric, enforce_detection, align
@@ -88,8 +89,8 @@ def verify(
         align=align,
         enforce_detection=enforce_detection,
     )
-    return obj
 
+    return obj
 
 def analyze(img_path, actions, detector_backend, enforce_detection, align):
     result = {}
@@ -101,6 +102,7 @@ def analyze(img_path, actions, detector_backend, enforce_detection, align):
         align=align,
     )
     result["results"] = demographies
+
     return result
 
 def init_models():
@@ -222,7 +224,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
     if existing_md is not None:
         raise exceptions.MetadataAlreadyExists(f"User {user_id} already owns primary face uploaded at {existing_md['uploaded_at']}")
 
-    if user is not None:
+    if user is not None and user["available_retries"] != 0:
         attempt = user["available_retries"]
     else:
         attempt = current_app.config["PRIMARY_PHOTO_RETRIES"]
@@ -237,12 +239,21 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
             if disabled:
                 metrics.register_disabled_user(e.sface_distance, e.arface_distance)
 
-                callback(
-                    current_user=current_user,
-                    primary_md=None,
-                    secondary_md=None,
-                    user={"disabled_at": now}
-                )
+                try:
+                    callback(
+                        current_user=current_user,
+                        primary_md=None,
+                        secondary_md=None,
+                        user={"disabled_at": now}
+                    )
+                except UnauthorizedFromWebhook as ex:
+                    _rollback_disabled_user(user_id)
+
+                    raise ex
+                except Exception as ex:
+                    _rollback_disabled_user(user_id)
+
+                    raise ex # goes to 5xx
 
                 raise exceptions.UserDisabled(f"Face {user_id}, attempt:{current_app.config['PRIMARY_PHOTO_RETRIES']}, distance {e.sface_distance} < {current_app.config['PRIMARY_PHOTO_SFACE_DISTANCE']}, {e.arface_distance} < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
 
@@ -263,15 +274,15 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
             _delete_metadatas(user_id, [upd["user_picture_id"]])
 
             raise e
-        except requests.RequestException as e:
+        except Exception as e:
             _delete_metadatas(user_id, [upd["user_picture_id"]])
 
             raise e # goes to 5xx
 
 def _disable_user(now, user_id, photo_content):
     _put_disable_photo(user_id,photo_content)
-    return db_disable_user(now,user_id)
 
+    return db_disable_user(now,user_id)
 
 def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_pics: list):
     now = time.time_ns()
@@ -285,27 +296,26 @@ def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_
     if bestIndex == -1:
         euclidian_sface = euclidian
         sface_threshold = threshold
-        #bestIndex, euclidian, threshold, bestNotFittingIndex = recheck_similarity_using_arcface(md_vector, user_id,pics,md,bestNotFittingIndex)
         bestIndex, euclidian, threshold, bestNotFittingIndex = recheck_similarity_using_sface(md_vector, user_id, pics, md, bestNotFittingIndex)
         if bestIndex == -1:
-            metrics.register_similarity_failure(euclidian_sface,euclidian)
+            metrics.register_similarity_failure(euclidian_sface, euclidian)
 
             raise exceptions.NotSameUser(f"user mismatch for user_id {user_id}: distance is greater than {sface_threshold} {threshold}: {euclidian_sface} {euclidian}")
 
     url = put_secondary_photo(user_id,raw_pics[bestIndex].stream)
     prev_state = _get_secondary_metadata(user_id)
-    upd, rows = _update_secondary_metadata(now,user_id,md[bestIndex], url)
+    upd, rows = _update_secondary_metadata(now, user_id, md[bestIndex], url)
     if rows > 0:
         try:
-            callback(current_user, user_reference_metadata,upd,_get_user(user_id))
+            callback(current_user, user_reference_metadata, upd, _get_user(user_id))
         except UnauthorizedFromWebhook as e:
             if prev_state is not None:
-                _update_secondary_metadata(prev_state["uploaded_at"],user_id,prev_state["face_metadata"], prev_state["url"])
+                _update_secondary_metadata(prev_state["uploaded_at"], user_id, prev_state["face_metadata"], prev_state["url"])
 
             raise e
-        except requests.RequestException as e:
+        except Exception as e:
             if prev_state is not None:
-                _update_secondary_metadata(prev_state["uploaded_at"],user_id,prev_state["face_metadata"], prev_state["url"])
+                _update_secondary_metadata(prev_state["uploaded_at"], user_id, prev_state["face_metadata"], prev_state["url"])
 
             raise e # goes to 5xx
 
@@ -316,6 +326,7 @@ def recheck_similarity_using_sface(primary_md, user_id: str, pics: list, sface_m
     threshold = _similarity_threshold(_model_fallback)
     if not secondary_md:
         return bestNotFittingIndex, 0, threshold, bestNotFittingIndex
+
     try:
         new_pic_md = distance.l2_normalize(DeepFace.represent(
             img_path=pics[bestNotFittingIndex],
@@ -332,7 +343,6 @@ def recheck_similarity_using_sface(primary_md, user_id: str, pics: list, sface_m
         bestIndex, euclidian, bestNotFittingIndex = compare_metadatas([primary_md, new_pic_md], threshold)
 
     return bestIndex, euclidian, threshold, bestNotFittingIndex
-
 
 def recheck_similarity_using_arcface(primary_md, user_id: str, pics: list,sface_metadatas: list, bestNotFittingIndex: int):
     # user is not the same as on primary photo - let's try with more complex but slower model as well to reduce false-negatives
@@ -370,7 +380,7 @@ def extract_and_compare_metadatas(user_reference_metadata: list, pics, model):
     pics[-1] = face['face']
     def predict_pic(p):
         with metrics.represent_time.labels(model = model).time():
-            return distance.l2_normalize(m.predict(np.expand_dims(p[::2,::2], axis=0))[0].tolist())
+            return distance.l2_normalize(m.predict(np.expand_dims(p[::2,::2], axis=0), verbose = 0)[0].tolist())
 
     metadata_to_compare.extend([predict_pic(p) for p in pics])
     threshold = _similarity_threshold(model)
@@ -387,6 +397,7 @@ def compare_metadatas(metadatas: list, threshold: float):
     m = distances[0]
     indexes = [(distances.index(d), m := min(d,m)) for d in distances if d <= threshold]
     indexes.sort(key=lambda x: x[1])
+
     if len(indexes) != len(metadatas) and len(indexes) < _min_images_with_emotions_to_proceed:
         return -1, min([i for i in distances if i > threshold]), int(np.argmin(distances))
     else:
@@ -395,9 +406,7 @@ def compare_metadatas(metadatas: list, threshold: float):
 def loadImageFromStream(p):
     chunk_arr = np.frombuffer(p.read(), dtype=np.uint8)
     img = cv2.imdecode(chunk_arr, cv2.IMREAD_COLOR)
-    # im = Image.open(p.stream)
-    # img = np.asarray(im)
-    # return img
+
     return img
 
 def get_status(user_id: str):
@@ -412,7 +421,9 @@ def get_status(user_id: str):
         lastVerified = primary["uploaded_at"]
     else:
         lastVerified = 0
+
     disabled = _get_user(user_id)
+
     return {
         "userId": user_id,
         "primaryPhotoUploaded": primaryUploaded,
@@ -438,24 +449,12 @@ def _remove_user_images(user_id):
     if _count_user_images(user_id) == 0:
         shutil.rmtree(dirname)
 
-def _remove_not_best_user_images(img_storage_path, user_id, best_images_indexes):
-    dirname = f"{img_storage_path}{user_id}"
-
-    if os.path.isdir(dirname) == False:
-        return False
-
-    all_images = glob.glob(f"{dirname}/*{_picture_extension}")
-    for full_name in all_images:
-        filename = full_name[full_name.rfind('/')+1:]
-        parts = filename.split('.')
-        if parts[0] not in best_images_indexes:
-            os.remove(full_name)
-
 def _get_unique_emotion(current_emotions_list: list, excluded_emotions = frozenset()):
     if len(current_emotions_list) == 0:
         choice = random.choice(_default_emotions_list[0])
 
         return choice.lower(), False
+
     last_weight = [current_emotions_list[-1] in emotions_by_weight for emotions_by_weight in _default_emotions_list].index(True)
     diff = []
     excluded=set(excluded_emotions)
@@ -479,12 +478,14 @@ def emotions(user_id):
     if usr is not None:
         if usr['disabled_at'] is not None and usr['disabled_at'] > 0:
             raise exceptions.UserDisabled(f"user:{usr['user_id']} disabled")
+
         if usr['last_negative_request_at'] > 0 and now - usr['last_negative_request_at'] <= current_app.config['LIMIT_RATE_NEGATIVE']:
             raise exceptions.NegativeRateLimitException(f"limit rate time didn't pass from the last negative try for user:{user_id} time: {usr['last_negative_request_at']}")
+
         secondary = _get_secondary_metadata(user_id)
         if secondary is not None and secondary['uploaded_at'] is not None and now - secondary['uploaded_at'] <= current_app.config['LIMIT_RATE']:
             raise exceptions.RateLimitException(f"rate limit exception for user_id:{user_id}, already passed the liveness at {secondary['uploaded_at']}")
-        _remove_session(user_id)
+
         _remove_user_images(user_id)
 
     session_id = str(uuid.uuid4())
@@ -496,6 +497,7 @@ def emotions(user_id):
             idx = int(i/total_emotions_count)*total_emotions_count
             new_emotion, _ = _get_unique_emotion(emotions_list[idx:],excluded_emotions=set(emotions_list[-1]))
         emotions_list.append(new_emotion)
+
     res = _update_user(
         user_id=user_id,
         session_id=session_id,
@@ -504,8 +506,7 @@ def emotions(user_id):
         last_negative_request_at=usr["last_negative_request_at"] if usr else 0,
         disabled_at=0,
         emotion_sequence=0,
-        best_pictures_score=np.array([0.0]*45),
-        now=now
+        best_pictures_score=np.array([0.0]*45)
     )
     if res is False:
         raise exceptions.UpsertException(f"can't insert user:{user_id}")
@@ -537,7 +538,6 @@ def _generate_emotions(usr):
     return ",".join(emotions_list)
 
 def _add_additional_emotion(usr):
-    user_id = usr["user_id"]
     current_emotions_list = usr['emotions'].split(',')
     emotion_sequence = usr['emotion_sequence']
     if emotion_sequence != len(current_emotions_list) or emotion_sequence >= current_app.config['MAX_EMOTION_COUNT']:
@@ -556,6 +556,7 @@ def _generate_best_scores(usr, current_emotions_list,scores, model, images_count
     usr['emotion_sequence'] = usr['emotion_sequence']+1
     if usr['emotion_sequence'] >= len(current_emotions_list) and (not session_success):
         usr['emotions'] = _add_additional_emotion(usr)
+
     return usr['emotions']
 
 def _predict(usr, model, images, now, awaited_emotion):
@@ -567,14 +568,17 @@ def _predict(usr, model, images, now, awaited_emotion):
             raise exceptions.WrongImageSizeException(f"wrong image size for user:{usr['user_id']}, session:{usr['session_id']}")
 
         face_img_list.append(loaded_image)
-    try: DeepFace.extract_faces(face_img_list[1+int(len(face_img_list)/2)], target_size=(112, 112), detector_backend=_detector_low_quality, enforce_detection=True, landmarks_verification=False)
+    try:
+        DeepFace.extract_faces(face_img_list[1+int(len(face_img_list)/2)], target_size=(112, 112), detector_backend=_detector_low_quality, enforce_detection=True, landmarks_verification=False)
     except ValueError as e:
         raise exceptions.NoFaces(f"No faces detected, userId: {usr['user_id']}", sface_distance=None, arface_distance=None)
+
     awaited_idx = model.class_to_idx[awaited_emotion]
     emotions, scores = model.predict_multi_emotions(face_img_list=face_img_list, logits = False)
 
     averages = np.average(scores, axis=0, weights=[i for i in range(len(scores))]) # last frames weights more
     logging.debug(f"[U:{usr['user_id']}][S:{usr['session_id']}] Prediction took {time.time()-t}")
+
     return averages[awaited_idx]*100.0, scores, model.idx_to_class[np.argmax(averages)], max(averages)*100, dict([(v,averages[k]*100) for k,v in model.idx_to_class.items()])
 
 def _rollback_images_devide_modulo_15(user_id: str):
@@ -593,11 +597,13 @@ def _save_image(image, idx, user_id):
         local_path = f"{current_app.config['IMG_STORAGE_PATH']}{user_id}/"
         if not os.path.exists(local_path):
             os.makedirs(local_path)
+
         filename = f'{idx}{_picture_extension}'
         image.seek(0)
         image.save(os.path.join(local_path, filename))
     except Exception as e:
         _rollback_images_devide_modulo_15(user_id)
+
         raise e
 
 def _send_best_images(similarity_server:str, token, user_id, files):
@@ -610,14 +616,18 @@ def _send_best_images(similarity_server:str, token, user_id, files):
         )
     except requests.RequestException as e:
         logging.warning(f"Similarity check userID {user_id}: {str(e)}")
+
         raise e
+
     if response.status_code == 200:
         return True
     else:
         logging.warning(f"Similarity check userID {user_id}: {response.status_code} {response.text}")
         if response.status_code == 400 and response.json()["code"] == _user_not_the_same:
             return False
+
     return True
+
 def _finish_session(usr, token):
     best_indexes = []
     for idx in np.argpartition(usr['best_pictures_score'], -current_app.config['TOTAL_BEST_PICTURES'])[-current_app.config['TOTAL_BEST_PICTURES']:]:
@@ -626,6 +636,7 @@ def _finish_session(usr, token):
     for img_idx in best_indexes:
         file_path = f"{current_app.config['IMG_STORAGE_PATH']}{usr['user_id']}/{img_idx}{_picture_extension}"
         files.append(('image', (f"{img_idx}{_picture_extension}", open(file_path, 'rb'), 'image/jpeg')))
+
     executor = current_app.extensions["snowfaceexecutor"]
     futures = [
         executor.submit(
@@ -639,7 +650,8 @@ def _finish_session(usr, token):
     #identity_match = _send_best_images(current_app.config['SIMILARITY_SERVER'], token,usr['user_id'], files)
     if identity_match:
         _remove_user_images(user_id=usr['user_id'])
-        _remove_session(user_id=usr['user_id'])
+        _remove_session(usr['user_id'])
+
     return identity_match
 
 def process_images(token: str, user_id: str, session_id: str, images:list):
@@ -669,7 +681,9 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
                 last_negative_request_at = usr['last_negative_request_at']
         ) is False:
             raise exceptions.UpsertException(f"can't update emotion sequence for user_id:{user_id}")
+
         return False, False, usr['emotions']
+
     model = DeepFace.build_model("Emotion")
     try:
         awaited_score, scores, max_emotion, max_score, averages = _predict(
@@ -690,7 +704,9 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
                 last_negative_request_at = usr['last_negative_request_at']
         ) is False:
             raise exceptions.UpsertException(f"can't invalidate session user_id:{user_id}")
+
         raise e
+
     relative_score = awaited_score*100.0/max_score
     logging.info(f"[U:{user_id}][S:{session_id}] awaited {current_emotion}/{awaited_score} it is {relative_score} of ({max_emotion}/{max_score}=100)  < {current_app.config['TARGET_EMOTION_SCORE']} all:{averages}")
     if relative_score < current_app.config['TARGET_EMOTION_SCORE']:
@@ -700,9 +716,11 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
         if session_ended:
             metrics.register_session_failure()
             usr['last_negative_request_at'] = now
+
         usr['best_pictures_score'][0] = usr['emotion_sequence']
         if usr['emotion_sequence'] >= len(current_emotions_list):
             usr['emotions'] = _add_additional_emotion(usr)
+
         if _update_emotions_and_best_score(
             usr=usr,
             emotions = usr['emotions'],
@@ -711,6 +729,7 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
             last_negative_request_at = usr['last_negative_request_at']
         ) is False:
             raise exceptions.UpsertException(f"can't update emotion sequence for user_id:{user_id}")
+
         return False, session_ended, usr['emotions']
 
     metrics.register_emotion_success(model,current_emotion,scores, averages)
@@ -721,6 +740,7 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
             user_id=user_id,
             idx=idx + images_count
         )
+
     session_success = _count_user_images(user_id) >= _images_count_per_call * current_app.config['TARGET_EMOTION_COUNT']
     session_ended = usr['emotion_sequence'] >= current_app.config['MAX_EMOTION_COUNT']
     emotions = _generate_best_scores(
@@ -731,6 +751,7 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
         images_count=images_count,
         session_success = session_success
     )
+
     result = True
     if session_success:
         metrics.register_session_length(usr['emotion_sequence']+1)
@@ -746,28 +767,33 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
                 best_score=usr["best_pictures_score"]
         ) is not True:
             raise exceptions.UpsertException(f"can't update emotion sequence and best score for user_id:{usr['user_id']}")
+
     return result, session_ended, emotions
 
 def delete_temporary_user_data(user_id:str):
     _remove_user_images(user_id = user_id)
-    _remove_session(user_id)
+
 def delete_user_photos_and_metadata(current_user, user_id = ""):
     force_user_id = user_id
     if not user_id:
         user_id = current_user.user_id
+
     main, secondary, errs = _delete_photos(user_id)
     if len(errs) > 0:
         raise Exception(str(errs))
+
     main_md, secondary_md, deleted_mds = _delete_metadatas(user_id, [f"{user_id}~0", f"{user_id}~1"])
     if deleted_mds == 0:
         raise exceptions.MetadataNotFound(f"face metadata for userId {user_id} was not deleted")
     try:
-        callback(current_user,None,None,None, user_id = force_user_id)
+        callback(current_user, None, None, None, user_id = force_user_id)
     except UnauthorizedFromWebhook as e:
-         _rollback_deletion(current_user, main, secondary, main_md, secondary_md)
-         raise e
-    except requests.RequestException as e:
         _rollback_deletion(current_user, main, secondary, main_md, secondary_md)
+
+        raise e
+    except Exception as e:
+        _rollback_deletion(current_user, main, secondary, main_md, secondary_md)
+
         raise e # goes to 5xx
 
 def _rollback_deletion(current_user,main, secondary, main_md, secondary_md):
@@ -780,13 +806,13 @@ def _rollback_deletion(current_user,main, secondary, main_md, secondary_md):
     if secondary_md:
         _update_secondary_metadata(secondary_md["uploaded_at"], current_user.user_id, secondary_md["face_metadata"], secondary_md["url"])
 
-
 def proxy_delete(current_user):
     similarity_server = current_app.config['SIMILARITY_SERVER']
     response = requests.delete(
         url=f"{similarity_server[:-1] if similarity_server.endswith('/') else similarity_server}/v1w/face-auth/",
         headers={"Authorization": f"Bearer {current_user.raw_token}", "X-Account-Metadata": current_user.metadata}
     )
+
     return response.content, response.status_code
 
 def emotions_cleanup():
@@ -794,15 +820,18 @@ def emotions_cleanup():
     duration = int(os.environ.get('SESSION_DURATION', _default_session_duration))*int(1e9)
     sessions = _get_expired_sessions(now,duration)
     logging.info(f"cleaning outdated sessions ({len(sessions)})...")
+
     for session in sessions:
-        _remove_session(session, duration)
         _remove_user_images(session)
 
 def reenable_user(current_user, user_id: str, duplicated_face: str):
-    _remove_session(user_id)
     primary = _get_primary_metadata(user_id, False)
     secondary = _get_secondary_metadata(user_id)
-    callback(current_user,primary,secondary,None, user_id=user_id)
+
+    callback(current_user, primary, secondary, None, user_id=user_id)
+
     if duplicated_face:
-        try: delete_user_photos_and_metadata(current_user, duplicated_face)
-        except exceptions.MetadataNotFound as e: pass
+        try:
+            delete_user_photos_and_metadata(current_user, duplicated_face)
+        except exceptions.MetadataNotFound as e:
+            pass

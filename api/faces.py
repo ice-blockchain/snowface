@@ -208,10 +208,12 @@ def set_primary_metadata(now: int, user_id:str, metadata: list, url: str):
         "url": url,
         "uploaded_at": now
     }, insertedRows
+
 def delete_metadatas(user_id: str, pk: list):
     faces = get_faces_collection()
     primary = get_primary_metadata(user_id)
     secondary = get_secondary_metadata(user_id)
+
     return primary, secondary, faces.delete(f"user_picture_id in {pk}").delete_count
 
 def ping(timeout = 30):
