@@ -105,7 +105,6 @@ def analyze(img_path, actions, detector_backend, enforce_detection, align):
 
 def init_models():
     if current_app.config["MINIO_URI"]:
-        DeepFace.build_model(_model)
         DeepFace.build_model(_model_fallback)
     emotion = DeepFace.build_model("Emotion")
     try:
@@ -116,7 +115,6 @@ def init_models():
             img = loadImageFromStream(io.BytesIO(samplePerson.content))
             if img is not None:
                 if current_app.config["MINIO_URI"]:
-                    DeepFace.represent(img_path=img, detector_backend=_detector_high_quality, model_name=_model, enforce_detection=False)
                     DeepFace.represent(img_path=img, detector_backend=_detector_high_quality, model_name=_model_fallback, enforce_detection=False)
                 else:
                     DeepFace.extract_faces(img_path=img,detector_backend=_detector_high_quality, enforce_detection=False)
@@ -130,21 +128,20 @@ def set_primary_photo_internal(current_user, user_id: str, photo_stream, attempt
             img_path=loadImageFromStream(photo_stream),
             detector_backend=_detector_high_quality,
             align=True,
-            landmarks_verification=True,
-            target_size=(640,640))
+            landmarks_verification=True)
     except ValueError:
         raise exceptions.NoFaces(f"No faces detected, userId: {user_id}", sface_distance=None, arface_distance=None)
 
     img_to_represent = resp_objs[0]['face']
     md = distance.l2_normalize(DeepFace.represent(
             img_path=img_to_represent,
-            model_name=_model,
+            model_name=_model_fallback,
             detector_backend="skip",
             normalization="base",
-            target_size=(640,640),
+            target_size=(112, 112),
         )[0]["embedding"])
 
-    threshold = current_app.config['PRIMARY_PHOTO_SFACE_DISTANCE']
+    threshold = current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']
     similar_users, distances = _find_similar_users(user_id, md, threshold)
 
     if similar_users[0] != user_id:
@@ -166,34 +163,25 @@ def set_primary_photo_internal(current_user, user_id: str, photo_stream, attempt
             primary_distance = res['distance']
             if res['distance'] <= current_app.config["PRIMARY_PHOTO_ARCFACE_DISTANCE"]:
                 secondary_pic = get_secondary_photo(similar_users[0])
-                if not secondary_pic:
-                    logging.info(f"[primary photo] Face {user_id}, attempt:{attempt} is matching with user {similar_users[0]}, distance {distances[0]} < {threshold}, ({primary_distance}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
+                secondary_res = DeepFace.verify(
+                    img1_path=img_objs,
+                    img2_path=loadImageFromStream(io.BytesIO(secondary_pic)),
+                    detector_backend=("skip", _detector_high_quality),
+                    model_name=_model_fallback,
+                    distance_metric=_similarity_metric,
+                    normalization="base",
+                    align=True
+                )
+                if secondary_res['distance'] <= current_app.config["PRIMARY_PHOTO_ARCFACE_DISTANCE"]:
+                    logging.info(f"[secondary photo] Face {user_id}, attempt:{attempt} is matching with user {similar_users[0]}, distance ({distances[0]}) < {threshold}, ({primary_distance} {secondary_res['distance']}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
 
                     raise exceptions.NoFaces(
-                        message=f"[primary photo] Face {user_id} attempt:{attempt} is matching with user {similar_users[0]}, distance {distances[0]} < {threshold}, ({primary_distance}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}",
+                        message=f"[secondary photo] Face {user_id} attempt:{attempt} is matching with user {similar_users[0]}, distance ({distances[0]}) < {threshold}, ({primary_distance} {secondary_res['distance']}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}",
                         sface_distance=distances[0],
-                        arface_distance=min(primary_distance, res['distance'])
+                        arface_distance=min(primary_distance, secondary_res['distance'])
                     )
                 else:
-                    secondary_res = DeepFace.verify(
-                        img1_path=img_objs,
-                        img2_path=loadImageFromStream(io.BytesIO(secondary_pic)),
-                        detector_backend=("skip", _detector_high_quality),
-                        model_name=_model_fallback,
-                        distance_metric=_similarity_metric,
-                        normalization="base",
-                        align=True
-                    )
-                    if secondary_res['distance'] <= current_app.config["PRIMARY_PHOTO_ARCFACE_DISTANCE"]:
-                        logging.info(f"[secondary photo] Face {user_id}, attempt:{attempt} is matching with user {similar_users[0]}, distance ({distances[0]}) < {threshold}, ({primary_distance} {secondary_res['distance']}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
-
-                        raise exceptions.NoFaces(
-                            message=f"[secondary photo] Face {user_id} attempt:{attempt} is matching with user {similar_users[0]}, distance ({distances[0]}) < {threshold}, ({primary_distance} {secondary_res['distance']}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}",
-                            sface_distance=distances[0],
-                            arface_distance=min(primary_distance, secondary_res['distance'])
-                        )
-                    else:
-                        logging.info(f"[secondary photo, positive arface] Face {user_id}, attempt:{attempt}: {similar_users[0]}, distance ({secondary_res['distance']}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
+                    logging.info(f"[secondary photo, positive arface] Face {user_id}, attempt:{attempt}: {similar_users[0]}, distance ({secondary_res['distance']}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
             else:
                 logging.info(f"[primary photo, positive arface] Face {user_id}, attempt:{attempt}: {similar_users[0]}, distance ({res['distance']}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
         else:
@@ -219,6 +207,8 @@ def set_primary_photo_internal(current_user, user_id: str, photo_stream, attempt
                 )
             else:
                 logging.info(f"[primary photo, no secondary, positive arface] Face {user_id}, attempt:{attempt}: {similar_users[0]}, distance ({res['distance']}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
+    else:
+        logging.info(f"[milvus, positive] Face {user_id}, attempt:{attempt}: {similar_users}, distance ({distances}) < {current_app.config['PRIMARY_PHOTO_SFACE_DISTANCE']}")
 
     return md
 
@@ -288,9 +278,10 @@ def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_
     user_reference_metadata = _get_primary_metadata(user_id, search_growing = False)
     if user_reference_metadata is None:
         raise exceptions.MetadataNotFound(f"User {user_id} have no registered primary metadata yet")
+
     md_vector = user_reference_metadata["face_metadata"]
     pics = [loadImageFromStream(p) for p in raw_pics]
-    md, bestIndex, euclidian,threshold, bestNotFittingIndex = extract_and_compare_metadatas(md_vector, pics,_model)
+    md, bestIndex, euclidian,threshold, bestNotFittingIndex = extract_and_compare_metadatas(md_vector, pics, _model_fallback)
     if bestIndex == -1:
         euclidian_sface = euclidian
         sface_threshold = threshold
@@ -298,7 +289,9 @@ def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_
         bestIndex, euclidian, threshold, bestNotFittingIndex = recheck_similarity_using_sface(md_vector, user_id, pics, md, bestNotFittingIndex)
         if bestIndex == -1:
             metrics.register_similarity_failure(euclidian_sface,euclidian)
+
             raise exceptions.NotSameUser(f"user mismatch for user_id {user_id}: distance is greater than {sface_threshold} {threshold}: {euclidian_sface} {euclidian}")
+
     url = put_secondary_photo(user_id,raw_pics[bestIndex].stream)
     prev_state = _get_secondary_metadata(user_id)
     upd, rows = _update_secondary_metadata(now,user_id,md[bestIndex], url)
@@ -308,32 +301,36 @@ def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_
         except UnauthorizedFromWebhook as e:
             if prev_state is not None:
                 _update_secondary_metadata(prev_state["uploaded_at"],user_id,prev_state["face_metadata"], prev_state["url"])
+
             raise e
         except requests.RequestException as e:
             if prev_state is not None:
                 _update_secondary_metadata(prev_state["uploaded_at"],user_id,prev_state["face_metadata"], prev_state["url"])
+
             raise e # goes to 5xx
+
         return bestIndex, euclidian, upd["uploaded_at"]
 
 def recheck_similarity_using_sface(primary_md, user_id: str, pics: list, sface_metadatas: list, bestNotFittingIndex: int):
     secondary_md = _get_secondary_metadata(user_id)
-    threshold = _similarity_threshold(_model)
+    threshold = _similarity_threshold(_model_fallback)
     if not secondary_md:
         return bestNotFittingIndex, 0, threshold, bestNotFittingIndex
     try:
         new_pic_md = distance.l2_normalize(DeepFace.represent(
             img_path=pics[bestNotFittingIndex],
-            model_name=_model,
-            enforce_detection=False,
+            model_name=_model_fallback,
             detector_backend=_detector_low_quality,
             align=True,
             normalization="base",
         )[0]["embedding"])
     except ValueError as e:
         raise exceptions.NoFaces("No faces detected", sface_distance=None, arface_distance=None)
+
     bestIndex, euclidian, bestNotFittingIndex = compare_metadatas([secondary_md["face_metadata"], new_pic_md], threshold)
     if bestIndex == -1:
         bestIndex, euclidian, bestNotFittingIndex = compare_metadatas([primary_md, new_pic_md], threshold)
+
     return bestIndex, euclidian, threshold, bestNotFittingIndex
 
 
@@ -349,6 +346,7 @@ def recheck_similarity_using_arcface(primary_md, user_id: str, pics: list,sface_
         align=True,
         normalization="base",
     )[0]["embedding"])
+
     threshold = _similarity_threshold(_model_fallback)
     bestIndex, euclidian, bestNotFittingIndex = compare_metadatas([md_vector,distance.l2_normalize(DeepFace.represent(
         img_path=pics[bestNotFittingIndex],
@@ -358,22 +356,26 @@ def recheck_similarity_using_arcface(primary_md, user_id: str, pics: list,sface_
         align=True,
         normalization="base",
     )[0]["embedding"])], threshold)
+
     return bestIndex, euclidian, threshold, bestNotFittingIndex
 
 def extract_and_compare_metadatas(user_reference_metadata: list, pics, model):
     metadata_to_compare = [user_reference_metadata]
     m = DeepFace.build_model(model)
     try:
-        face = DeepFace.extract_faces(img_path=pics[-1],target_size=(224,224),detector_backend=_detector_low_quality,align=False)[0]
+        face = DeepFace.extract_faces(img_path=pics[-1], target_size=(224, 224), detector_backend=_detector_low_quality, align=False)[0]
     except ValueError as e:
         raise exceptions.NoFaces("No faces detected", sface_distance=None, arface_distance=None)
+
     pics[-1] = face['face']
     def predict_pic(p):
         with metrics.represent_time.labels(model = model).time():
             return distance.l2_normalize(m.predict(np.expand_dims(p[::2,::2], axis=0))[0].tolist())
+
     metadata_to_compare.extend([predict_pic(p) for p in pics])
     threshold = _similarity_threshold(model)
     bestIndex, euclidian, bestNotFittingIndex = compare_metadatas(metadata_to_compare, threshold)
+
     return metadata_to_compare, bestIndex, euclidian, threshold, bestNotFittingIndex
 
 def _similarity_threshold(model: str):
@@ -565,7 +567,7 @@ def _predict(usr, model, images, now, awaited_emotion):
             raise exceptions.WrongImageSizeException(f"wrong image size for user:{usr['user_id']}, session:{usr['session_id']}")
 
         face_img_list.append(loaded_image)
-    try: DeepFace.extract_faces(face_img_list[1+int(len(face_img_list)/2)], detector_backend=_detector_low_quality, enforce_detection=True, landmarks_verification=False)
+    try: DeepFace.extract_faces(face_img_list[1+int(len(face_img_list)/2)], target_size=(112, 112), detector_backend=_detector_low_quality, enforce_detection=True, landmarks_verification=False)
     except ValueError as e:
         raise exceptions.NoFaces(f"No faces detected, userId: {usr['user_id']}", sface_distance=None, arface_distance=None)
     awaited_idx = model.class_to_idx[awaited_emotion]

@@ -91,7 +91,7 @@ def create_faces_collection(name):
             ), FieldSchema(
                 name="face_metadata",
                 dtype=DataType.FLOAT_VECTOR,
-                dim=128
+                dim=512
             ), FieldSchema(
                 name="url",
                 dtype=DataType.VARCHAR,
