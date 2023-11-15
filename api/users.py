@@ -44,9 +44,7 @@ def update_user(
     best_pictures_score
 ):
     r = _get_client()
-    if not r.hmset(_expirationKey(session_started_at, current_app.config["SESSION_DURATION"]), mapping = {
-        user_id:1
-    }):
+    if not set_expired(session_started_at, user_id):
         return False
 
     return r.hmset(_userKey(user_id),mapping={
@@ -147,10 +145,30 @@ def get_expired_sessions(now, duration):
 
     return [str(e, encoding = "utf-8") for e in expired_users]
 
+def remove_expired(session_started_at, user_id):
+    r = _get_client()
+
+    if session_started_at is not None:
+        return r.hdel(_expirationKey(session_started_at, current_app.config["SESSION_DURATION"]), user_id)
+
+    return True
+
 def remove_session(user_id: str):
     r = _get_client()
 
     return r.hdel(_userKey(user_id), "session_id")
+
+def user_reset(user_id: str):
+    r = _get_client()
+
+    return r.hdel(_userKey(user_id), "session_id", "last_negative_request_at", "session_started_at")
+
+def set_expired(session_started_at, user_id):
+    r = _get_client()
+
+    return r.hmset(_expirationKey(session_started_at, current_app.config["SESSION_DURATION"]), mapping = {
+        user_id: 1
+    })
 
 def ping():
     r = _get_client()

@@ -29,7 +29,10 @@ from users import (
     remove_session                         as _remove_session,
     update_last_negative_request_at        as _update_last_negative_request_at,
     get_expired_sessions                   as _get_expired_sessions,
-    decrease_available_retries             as _decrease_available_retries
+    decrease_available_retries             as _decrease_available_retries,
+    user_reset                             as _user_reset,
+    remove_expired                         as _remove_expired,
+    set_expired                            as _set_expired
 )
 from PIL import Image
 import cv2
@@ -778,6 +781,8 @@ def delete_user_photos_and_metadata(current_user, user_id = ""):
     if not user_id:
         user_id = current_user.user_id
 
+    prev_state = _get_user(user_id, search_growing=False)
+
     main, secondary, errs = _delete_photos(user_id)
     if len(errs) > 0:
         raise Exception(str(errs))
@@ -785,18 +790,39 @@ def delete_user_photos_and_metadata(current_user, user_id = ""):
     main_md, secondary_md, deleted_mds = _delete_metadatas(user_id, [f"{user_id}~0", f"{user_id}~1"])
     if deleted_mds == 0:
         raise exceptions.MetadataNotFound(f"face metadata for userId {user_id} was not deleted")
+
+    _user_reset(user_id)
+    if prev_state is not None:
+        _remove_expired(prev_state['session_started_at'], user_id)
+
     try:
         callback(current_user, None, None, None, user_id = force_user_id)
     except UnauthorizedFromWebhook as e:
-        _rollback_deletion(current_user, main, secondary, main_md, secondary_md)
+        _rollback_deletion(prev_state, current_user, main, secondary, main_md, secondary_md)
 
         raise e
     except Exception as e:
-        _rollback_deletion(current_user, main, secondary, main_md, secondary_md)
+        _rollback_deletion(prev_state, current_user, main, secondary, main_md, secondary_md)
 
         raise e # goes to 5xx
 
-def _rollback_deletion(current_user,main, secondary, main_md, secondary_md):
+def _rollback_expired(user_id: str, prev_state):
+    if prev_state['session_started_at'] is not None:
+        _set_expired(prev_state['session_started_at'], user_id)
+
+def _rollback_user_state(user_id: str, prev_state):
+    _update_user(
+        user_id=user_id,
+        session_id=prev_state['session_id'],
+        emotions=prev_state['emotions'],
+        session_started_at=prev_state['session_started_at'],
+        last_negative_request_at=prev_state['last_negative_request_at'],
+        disabled_at=prev_state['disabled_at'],
+        emotion_sequence=prev_state['emotion_sequence'],
+        best_pictures_score=prev_state['best_pictures_score'],
+    )
+
+def _rollback_deletion(prev_state, current_user, main, secondary, main_md, secondary_md):
     if main is not None:
         put_primary_photo(user_id=current_user.user_id, photo_content=io.BytesIO(main))
     if secondary is not None:
@@ -805,6 +831,10 @@ def _rollback_deletion(current_user,main, secondary, main_md, secondary_md):
         _set_primary_metadata(main_md["uploaded_at"], current_user.user_id, main_md["face_metadata"], main_md["url"])
     if secondary_md:
         _update_secondary_metadata(secondary_md["uploaded_at"], current_user.user_id, secondary_md["face_metadata"], secondary_md["url"])
+
+    if prev_state is not None:
+        _rollback_user_state(current_user.user_id, prev_state)
+        _rollback_expired(current_user.user_id, prev_state)
 
 def proxy_delete(current_user):
     similarity_server = current_app.config['SIMILARITY_SERVER']
