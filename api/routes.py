@@ -237,6 +237,30 @@ def delete_photos(current_user: Token):
 
             return {"message":"oops, an error occured"}, 500
 
+@blueprint.route("/v1w/face-auth/users/<user_id>", methods=["DELETE"])
+@auth_required
+def delete_photos_with_admin_privileges(current_user: Token, user_id):
+    with REQUEST_TIME.labels(path="/v1w/face-auth/users").time():
+        try:
+            if current_app.config["MINIO_URI"]:
+                service.delete_user_photos_and_metadata(current_user, admin_user_id=user_id)
+
+                return "", 200
+            else:
+                service.delete_temporary_user_data(user_id)
+
+                return service.proxy_delete(current_user, user_id)
+        except exceptions.MetadataNotFound as e:
+            _log_error(current_user, e)
+
+            return "", 204
+        except webhook.UnauthorizedFromWebhook as e:
+            return str(e), 401
+        except Exception as e:
+            _log_error(current_user, e, True)
+
+            return {"message":"oops, an error occured"}, 500
+
 @blueprint.route("/v1r/face-auth/status/<user_id>", methods=["GET"])
 @auth_required
 def user_status(current_user, user_id):
@@ -328,15 +352,16 @@ def liveness(current_user, user_id, session_id):
 def enable_user(current_user: Token):
     if current_user.role != "admin":
         return {'message': f'insufficient role: "{current_user.role}"'}, 403
+
     data = request.get_json(force=True)
     if data is None:
         return {"message":"invalid json"}, 422
 
-    user_id = data.get("userId",None)
+    user_id = data.get("userId", None)
     if not user_id:
         return {"message":"userId is missing"}, 422
 
-    duplicated_face = data.get("duplicatedFace",None)
+    duplicated_face = data.get("duplicatedFace", None)
     try:
         service.reenable_user(current_user, user_id, duplicated_face)
 

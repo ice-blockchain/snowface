@@ -21,6 +21,7 @@ class Token:
     raw_token: str
     metadata: str
     _provider: str
+
     def __init__(self, token, user_id: str, email: str, role: str, provider: str):
         self.raw_token = token
         self.user_id = user_id
@@ -29,14 +30,17 @@ class Token:
         self._provider = provider
         self.raw_token = token
         self.metadata = ""
+
     def isICE(self):
         return self._provider == "ice"
+
 def auth_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         token = None
         if "Authorization" in request.headers:
             token = request.headers["Authorization"].replace("Bearer ","",1)
+
         if not token:
             return {
                 "message": "Authorization token not presented",
@@ -49,11 +53,14 @@ def auth_required(f):
                 user = _parse_ice(token)
             else:
                 user = _parse_firebase(token)
+
             if "X-Account-Metadata" in request.headers:
                 user = _modify_with_metadata(user, request.headers["X-Account-Metadata"])
+
             user_id_in_url = request.view_args.get("user_id","")
-            if user_id_in_url and user_id_in_url != user.user_id:
+            if user_id_in_url and user_id_in_url != user.user_id and user.role != "admin":
                 logging.error(f"operation not allowed. uri>{user_id_in_url}!=token>{user.user_id}")
+
                 return {
                     "message": f"operation not allowed. uri>{user_id_in_url}!=token>{user.user_id}",
                     "code": "OPERATION_NOT_ALLOWED"
@@ -61,16 +68,19 @@ def auth_required(f):
                 }, 403
         except Exception as e:
             logging.error(e)
+
             return {
                 "message": str(e),
                 "code": "INVALID_TOKEN",
             }, 401
+
         return f(user, *args, **kwargs)
 
     return decorated
 
 def _parse_ice(token):
     jwt_data=jwt.decode(token, current_app.config["JWT_SECRET"], algorithms=["HS256"])
+
     return Token(
         token,
         jwt_data["sub"],
@@ -81,6 +91,7 @@ def _parse_ice(token):
 
 def _parse_firebase(token):
     jwt_data = auth.verify_id_token(token, app = _get_firebase_client())
+
     return Token(
         token,
         jwt_data["uid"],
@@ -88,7 +99,6 @@ def _parse_firebase(token):
         jwt_data.get("role",""),
         "firebase"
     )
-
 
 def _get_firebase_client():
     global _firebase_client
@@ -100,10 +110,12 @@ def _get_firebase_client():
 def _modify_with_metadata(user, mdToken):
     if not mdToken:
         return user
+
     user_id = user.user_id
     metadata = jwt.decode(mdToken, current_app.config["JWT_SECRET"], algorithms=["HS256"])
     if metadata["iss"] != _issuer_ice_metadata:
         raise jwt.InvalidIssuerError(f'{metadata["iss"]} must be {_issuer_ice_metadata}')
+
     sub_match = metadata["sub"] != "" and user_id == metadata["sub"]
     fb_match = metadata.get(_firebase_id,"") != "" and user_id == metadata.get(_firebase_id,"")
     ice_match = metadata.get(_ice_id,"") != "" and user_id == metadata.get(_ice_id,"")
@@ -119,4 +131,5 @@ def _modify_with_metadata(user, mdToken):
     if md_user_id:
         user.user_id = md_user_id
         user.metadata = mdToken
+
     return user
