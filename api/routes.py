@@ -221,13 +221,15 @@ def delete_photos(current_user: Token):
         if request.content_type == "application/json":
             data = request.get_json(force=True)
             if data is not None:
-                if current_user.role != "admin":
-                    return {'message': f'insufficient role: "{current_user.role}"'}, 403
-
-                user_id = data.get("userId", None)
-                if not user_id:
+                json_user_id = data.get("userId", None)
+                if not json_user_id:
                     return {"message":"userId is missing"}, 422
 
+                if current_user.user_id != json_user_id:
+                    if current_user.role != "admin":
+                        return {'message': f'insufficient role: "{current_user.role}"'}, 403
+
+                    user_id = json_user_id
         try:
             if current_app.config["MINIO_URI"]:
                 service.delete_user_photos_and_metadata(current_user, to_delete_user_id=user_id)
