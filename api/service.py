@@ -774,11 +774,12 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
     return result, session_ended, emotions
 
 def delete_temporary_user_data(user_id:str):
-    _remove_user_images(user_id = user_id)
+    _remove_user_images(user_id)
 
-def delete_user_photos_and_metadata(current_user, user_id = ""):
-    force_user_id = user_id
-    if not user_id:
+def delete_user_photos_and_metadata(current_user, admin_user_id = "", force_user_id = ""):
+    if admin_user_id != "":
+        user_id = admin_user_id
+    else:
         user_id = current_user.user_id
 
     prev_state = _get_user(user_id, search_growing=False)
@@ -788,21 +789,28 @@ def delete_user_photos_and_metadata(current_user, user_id = ""):
         raise Exception(str(errs))
 
     main_md, secondary_md, deleted_mds = _delete_metadatas(user_id, [f"{user_id}~0", f"{user_id}~1"])
-    if deleted_mds == 0:
+    if deleted_mds == 0 or (main_md is None and secondary_md is None):
         raise exceptions.MetadataNotFound(f"face metadata for userId {user_id} was not deleted")
 
     _user_reset(user_id)
     if prev_state is not None:
         _remove_expired(prev_state['session_started_at'], user_id)
 
+    if force_user_id != "":
+        callback_user_id = force_user_id
+    elif admin_user_id != "":
+        callback_user_id = user_id
+    else:
+        callback_user_id = ""
+
     try:
-        callback(current_user, None, None, None, user_id = force_user_id)
+        callback(current_user, None, None, None, user_id = callback_user_id)
     except UnauthorizedFromWebhook as e:
-        _rollback_deletion(prev_state, current_user, main, secondary, main_md, secondary_md)
+        _rollback_deletion(prev_state, user_id, main, secondary, main_md, secondary_md)
 
         raise e
     except Exception as e:
-        _rollback_deletion(prev_state, current_user, main, secondary, main_md, secondary_md)
+        _rollback_deletion(prev_state, user_id, main, secondary, main_md, secondary_md)
 
         raise e # goes to 5xx
 
@@ -822,24 +830,29 @@ def _rollback_user_state(user_id: str, prev_state):
         best_pictures_score=prev_state['best_pictures_score'],
     )
 
-def _rollback_deletion(prev_state, current_user, main, secondary, main_md, secondary_md):
+def _rollback_deletion(prev_state, user_id, main, secondary, main_md, secondary_md):
     if main is not None:
-        put_primary_photo(user_id=current_user.user_id, photo_content=io.BytesIO(main))
+        put_primary_photo(user_id=user_id, photo_content=io.BytesIO(main))
     if secondary is not None:
-        put_secondary_photo(user_id=current_user.user_id, photo_content=io.BytesIO(secondary))
+        put_secondary_photo(user_id=user_id, photo_content=io.BytesIO(secondary))
     if main_md:
-        _set_primary_metadata(main_md["uploaded_at"], current_user.user_id, main_md["face_metadata"], main_md["url"])
+        _set_primary_metadata(main_md["uploaded_at"], user_id, main_md["face_metadata"], main_md["url"])
     if secondary_md:
-        _update_secondary_metadata(secondary_md["uploaded_at"], current_user.user_id, secondary_md["face_metadata"], secondary_md["url"])
+        _update_secondary_metadata(secondary_md["uploaded_at"], user_id, secondary_md["face_metadata"], secondary_md["url"])
 
     if prev_state is not None:
-        _rollback_user_state(current_user.user_id, prev_state)
-        _rollback_expired(current_user.user_id, prev_state)
+        _rollback_user_state(user_id, prev_state)
+        _rollback_expired(user_id, prev_state)
 
-def proxy_delete(current_user):
+def proxy_delete(current_user, user_id = ""):
     similarity_server = current_app.config['SIMILARITY_SERVER']
+
+    url = f"{similarity_server[:-1] if similarity_server.endswith('/') else similarity_server}/v1w/face-auth/"
+    if user_id != "":
+        url = f"{url}{user_id}"
+
     response = requests.delete(
-        url=f"{similarity_server[:-1] if similarity_server.endswith('/') else similarity_server}/v1w/face-auth/",
+        url=url,
         headers={"Authorization": f"Bearer {current_user.raw_token}", "X-Account-Metadata": current_user.metadata}
     )
 
@@ -862,6 +875,6 @@ def reenable_user(current_user, user_id: str, duplicated_face: str):
 
     if duplicated_face:
         try:
-            delete_user_photos_and_metadata(current_user, duplicated_face)
+            delete_user_photos_and_metadata(current_user, force_user_id=duplicated_face)
         except exceptions.MetadataNotFound as e:
             pass
