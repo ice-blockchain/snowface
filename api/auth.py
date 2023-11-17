@@ -58,7 +58,7 @@ def auth_required(f):
                 user = _modify_with_metadata(user, request.headers["X-Account-Metadata"])
 
             user_id_in_url = request.view_args.get("user_id","")
-            if user_id_in_url and user_id_in_url != user.user_id and user.role != "admin":
+            if user_id_in_url and user_id_in_url != user.user_id:
                 logging.error(f"operation not allowed. uri>{user_id_in_url}!=token>{user.user_id}")
 
                 return {

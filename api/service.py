@@ -776,9 +776,11 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
 def delete_temporary_user_data(user_id:str):
     _remove_user_images(user_id)
 
-def delete_user_photos_and_metadata(current_user, admin_user_id = "", force_user_id = ""):
-    if admin_user_id != "":
-        user_id = admin_user_id
+def delete_user_photos_and_metadata(current_user, to_delete_user_id = "", force_user_id = ""):
+    if to_delete_user_id != "":
+        user_id = to_delete_user_id
+    elif force_user_id != "":
+        user_id = force_user_id
     else:
         user_id = current_user.user_id
 
@@ -798,7 +800,7 @@ def delete_user_photos_and_metadata(current_user, admin_user_id = "", force_user
 
     if force_user_id != "":
         callback_user_id = force_user_id
-    elif admin_user_id != "":
+    elif to_delete_user_id != "":
         callback_user_id = user_id
     else:
         callback_user_id = ""
