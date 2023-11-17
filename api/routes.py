@@ -213,19 +213,21 @@ def primary_photo(current_user, user_id):
 
             return {"message":"oops, an error occured"}, 500
 
-@blueprint.route("/v1w/face-auth", methods=["DELETE"], defaults={'user_id': ""})
-@blueprint.route("/v1w/face-auth/<user_id>", methods=["DELETE"])
+@blueprint.route("/v1w/face-auth/users", methods=["DELETE"], defaults={"user_id": ""})
+@blueprint.route("/v1w/face-auth/users/<user_id>", methods=["DELETE"])
 @auth_required
 def delete_photos(current_user: Token, user_id):
-    with REQUEST_TIME.labels(path="/v1w/face-auth/").time():
+    with REQUEST_TIME.labels(path="/v1w/face-auth/users").time():
         try:
             if current_app.config["MINIO_URI"]:
                 service.delete_user_photos_and_metadata(current_user, admin_user_id=user_id)
-                service.delete_temporary_user_data(user_id)
 
                 return "", 200
             else:
-                service.delete_temporary_user_data(user_id)
+                if user_id != "":
+                    service.delete_temporary_user_data(user_id)
+                else:
+                    service.delete_temporary_user_data(current_user.user_id)
 
                 return service.proxy_delete(current_user, user_id)
         except exceptions.MetadataNotFound as e:
