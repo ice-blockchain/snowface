@@ -792,7 +792,7 @@ def delete_user_photos_and_metadata(current_user, to_delete_user_id = "", force_
         raise Exception(str(errs))
 
     main_md, secondary_md, deleted_mds = _delete_metadatas(user_id, [f"{user_id}~0", f"{user_id}~1"])
-    if deleted_mds == 0 or (main_md is None and secondary_md is None):
+    if (deleted_mds == 0 or (main_md is None and secondary_md is None)) and prev_state is None:
         raise exceptions.MetadataNotFound(f"face metadata for userId {user_id} was not deleted")
 
     if force_user_id == "":
