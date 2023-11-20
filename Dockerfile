@@ -6,8 +6,6 @@ LABEL org.opencontainers.image.source https://github.com/serengil/deepface
 RUN mkdir -p /app/deepface && mkdir -p root/.deepface/weights/
 # -----------------------------------
 # Copy required files from repo into image
-COPY ./deepface /app/deepface
-COPY ./api/*.py /app/
 COPY ./requirements.txt /app/
 COPY ./setup.py /app/
 COPY ./README.md /app/
@@ -41,6 +39,9 @@ RUN pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted
 # RUN pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host=files.pythonhosted.org dlib==19.20.0
 # RUN pip install --trusted-host pypi.org --trusted-host pypi.python.org --trusted-host=files.pythonhosted.org lightgbm==2.3.1
 # -----------------------------------
+
+COPY ./deepface /app/deepface
+COPY ./api/*.py /app/
 # environment variables
 ENV PYTHONUNBUFFERED=1
 ARG WORKERS=4

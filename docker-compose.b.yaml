@@ -105,4 +105,5 @@ services:
     depends_on:
       - "milvus-standalone"
       - "minio"
+      - "dragonfly"
     network_mode: "host"
