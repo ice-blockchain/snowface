@@ -211,7 +211,7 @@ def set_primary_metadata(now: int, user_id:str, metadata: list, url: str):
 
 def delete_metadatas(user_id: str, pk: list):
     faces = get_faces_collection()
-    primary = get_primary_metadata(user_id)
+    primary = get_primary_metadata(user_id, search_growing=False)
     secondary = get_secondary_metadata(user_id)
 
     return primary, secondary, faces.delete(f"user_picture_id in {pk}").delete_count
