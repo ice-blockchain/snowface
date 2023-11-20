@@ -158,10 +158,17 @@ def remove_session(user_id: str):
 
     return r.hdel(_userKey(user_id), "session_id")
 
-def user_reset(user_id: str):
+def full_user_reset(user_id: str):
     r = _get_client()
 
-    return r.hdel(_userKey(user_id), "session_id", "last_negative_request_at", "session_started_at")
+    return r.hdel(_userKey(user_id), 
+                  "session_id", "last_negative_request_at", "session_started_at", "user_id", "disabled_at",
+                  "emotion_sequence", "best_pictures_score", "emotions", "available_retries")
+
+def enable_user(user_id: str):
+    r = _get_client()
+
+    return r.hdel(_userKey(user_id), "disabled_at")
 
 def set_expired(session_started_at, user_id):
     r = _get_client()

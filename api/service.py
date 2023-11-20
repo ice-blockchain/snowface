@@ -30,9 +30,10 @@ from users import (
     update_last_negative_request_at        as _update_last_negative_request_at,
     get_expired_sessions                   as _get_expired_sessions,
     decrease_available_retries             as _decrease_available_retries,
-    user_reset                             as _user_reset,
+    full_user_reset                        as _full_user_reset,
     remove_expired                         as _remove_expired,
-    set_expired                            as _set_expired
+    set_expired                            as _set_expired,
+    enable_user                            as _enable_user
 )
 from PIL import Image
 import cv2
@@ -794,9 +795,10 @@ def delete_user_photos_and_metadata(current_user, to_delete_user_id = "", force_
     if deleted_mds == 0 or (main_md is None and secondary_md is None):
         raise exceptions.MetadataNotFound(f"face metadata for userId {user_id} was not deleted")
 
-    _user_reset(user_id)
-    if prev_state is not None:
-        _remove_expired(prev_state['session_started_at'], user_id)
+    if force_user_id == "":
+        _full_user_reset(user_id)
+        if prev_state is not None:
+            _remove_expired(prev_state['session_started_at'], user_id)
 
     if force_user_id != "":
         callback_user_id = force_user_id
@@ -872,6 +874,8 @@ def emotions_cleanup():
 def reenable_user(current_user, user_id: str, duplicated_face: str):
     primary = _get_primary_metadata(user_id, False)
     secondary = _get_secondary_metadata(user_id)
+
+    _enable_user(user_id)
 
     callback(current_user, primary, secondary, None, user_id=user_id)
 
