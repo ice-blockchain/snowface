@@ -218,7 +218,7 @@ def primary_photo(current_user, user_id):
 def delete_photos(current_user: Token):
     with REQUEST_TIME.labels(path="/v1w/face-auth/").time():
         user_id = ""
-        if request.content_type == "application/json":
+        if request.content_type == "application/json" or request.content_type == "application/json; charset=utf-8":
             data = request.get_json(force=True)
             if data is not None:
                 json_user_id = data.get("userId", None)
