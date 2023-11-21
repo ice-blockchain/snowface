@@ -71,7 +71,7 @@ def upload_primary(userData):
         print(str(e))
         raise e
     if response.status_code != 200:
-        if not "NO_FACE" in response.text:
+        if not "No faces detected" in response.text:
             print(f"primary for {user} failed with {response.status_code} {response.text}")
             primary_photo_failures.inc()
         elif len(list(userData[1]['file'].iloc)) > 1:

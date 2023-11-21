@@ -19,6 +19,9 @@ class UserNotFound(Exception):
         super().__init__(message)
 
 class NoFaces(Exception):
+    def __init__(self, message):
+        super().__init__(message)
+class FailedTryToDisable(Exception):
     def __init__(self, message, sface_distance, arface_distance):
         super().__init__(message)
         self.sface_distance = sface_distance

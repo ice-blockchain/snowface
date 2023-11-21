@@ -195,6 +195,12 @@ def primary_photo(current_user, user_id):
                 _primary_photo_rate_limiter.hit(_primary_photo_rate_limiter_rate, user_id)
 
             return {"message": str(e), "code":_no_faces}, 400
+        except exceptions.FailedTryToDisable as e:
+            _log_error(current_user, e)
+            if _primary_photo_rate_limiter_rate is not None:
+                _primary_photo_rate_limiter.hit(_primary_photo_rate_limiter_rate, user_id)
+
+            return {"message": str(e), "code":_no_faces}, 400
         except exceptions.MetadataAlreadyExists as e:
             _log_error(current_user, e)
 
