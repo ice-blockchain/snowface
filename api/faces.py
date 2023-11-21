@@ -7,15 +7,19 @@ from pymilvus.client.types import LoadState
 from pymilvus.exceptions import IndexNotExistException
 import numpy as np
 from flask import current_app
+
+from deepface.commons.distance import modelVectorLength
+
 _conn_prefix = "snowface-"+str(os.getpid())
-_faces_collection = None
-_users_collection = None
+_faces_collections = {}
 
 _picture_primary = 0
 _picture_secondary = 1
 
 _default_user = 'root'
 _default_password = 'Milvus'
+
+_models = ["arcface", "sface"] # first is used for primary photos duplicates detection
 
 def connect_milvus():
     uri = os.environ.get('MILVUS_URI')
@@ -38,10 +42,13 @@ def close_milvus():
 def on_exit(arbiter):
     connections.disconnect(alias="default")
 
-def init_collection(name, create_fn, extra_indexes = None):
+def init_faces_collection(model):
+    return _init_collection(f"faces_{model}", create_faces_collection, model_name = model)
+
+def _init_collection(name, create_fn, extra_indexes = None, **kwargs):
     db = None
     if not utility.has_collection(name, using=_conn_prefix):
-        db = create_fn(name)
+        db = create_fn(name, **kwargs)
         if extra_indexes:
             for ind_field in extra_indexes.keys():
                 index = [idx for idx in db.indexes if idx.field_name == ind_field]
@@ -67,12 +74,13 @@ def init_collection(name, create_fn, extra_indexes = None):
     return db
 
 def init_schema():
-    _faces_collection = init_collection("faces", create_faces_collection)
+    for m in _models:
+        _faces_collections[m] = init_faces_collection(m)
 
 
-def create_faces_collection(name):
+def create_faces_collection(name, model_name):
     faces = Collection(
-        name=name,
+        name=f'faces_{model_name}',
         schema=CollectionSchema(
             fields=[FieldSchema(
                 name="user_picture_id", #user_id~picture_id
@@ -91,7 +99,7 @@ def create_faces_collection(name):
             ), FieldSchema(
                 name="face_metadata",
                 dtype=DataType.FLOAT_VECTOR,
-                dim=512
+                dim=modelVectorLength(model_name)
             ), FieldSchema(
                 name="url",
                 dtype=DataType.VARCHAR,
@@ -117,17 +125,18 @@ def create_faces_collection(name):
         index_name="picture_id_idx")
     return faces
 
-def get_faces_collection():
-    global _faces_collection
+def get_faces_collection(model):
+    model = model.lower()
+    global _faces_collections
     if not connections.has_connection(_conn_prefix):
         connect_milvus()
-    if _faces_collection is None:
-        _faces_collection = init_collection("faces", create_faces_collection)
+    if _faces_collections.get(model, None) is None:
+        _faces_collections[model] = init_faces_collection(model)
 
-    return _faces_collection
+    return _faces_collections[model]
 
-def get_primary_metadata(user_id, search_growing = True):
-    faces = get_faces_collection()
+def get_primary_metadata(user_id, model, search_growing = True):
+    faces = get_faces_collection(model)
     res = faces.query(
         expr = f"user_picture_id == \"{user_id}~{_picture_primary}\"",
         offset = 0,
@@ -140,8 +149,8 @@ def get_primary_metadata(user_id, search_growing = True):
         return None
     return res[0]
 
-def get_secondary_metadata(user_id):
-    faces = get_faces_collection()
+def get_secondary_metadata(user_id, model):
+    faces = get_faces_collection(model)
     res = faces.query(
         expr = f"user_picture_id == \"{user_id}~{_picture_secondary}\"",
         offset = 0,
@@ -153,7 +162,7 @@ def get_secondary_metadata(user_id):
     return res[0]
 
 def find_similar_users(user_id: str,metadata: list, threshold: float):
-    faces = get_faces_collection()
+    faces = get_faces_collection(_models[0])
     results = faces.search(
         data=[metadata],
         anns_field="face_metadata",
@@ -183,8 +192,8 @@ def find_similar_users(user_id: str,metadata: list, threshold: float):
     return found_user_ids, distances
 
 
-def update_secondary_metadata(now: int, user_id:str, metadata: list, url: str):
-    faces = get_faces_collection()
+def update_secondary_metadata(now: int, user_id:str, metadata: list, url: str, model: str):
+    faces = get_faces_collection(model)
     pk = f"{user_id}~{_picture_secondary}"
     rowsCount = faces.upsert([[pk],[user_id],[np.int32(_picture_secondary)],[metadata],[url],[now]]).upsert_count
     return {
@@ -196,8 +205,8 @@ def update_secondary_metadata(now: int, user_id:str, metadata: list, url: str):
         "uploaded_at": now
     }, rowsCount
 
-def set_primary_metadata(now: int, user_id:str, metadata: list, url: str):
-    faces = get_faces_collection()
+def set_primary_metadata(now: int, user_id:str, metadata: list, url: str, model: str):
+    faces = get_faces_collection(model)
     pk = f"{user_id}~{_picture_primary}"
     insertedRows = faces.insert([[pk],[user_id],[np.int32(_picture_primary)],[metadata],[url],[now]]).insert_count
     return {
@@ -210,14 +219,16 @@ def set_primary_metadata(now: int, user_id:str, metadata: list, url: str):
     }, insertedRows
 
 def delete_metadatas(user_id: str, pk: list):
-    faces = get_faces_collection()
-    primary = get_primary_metadata(user_id, search_growing=False)
-    secondary = get_secondary_metadata(user_id)
-
-    return primary, secondary, faces.delete(f"user_picture_id in {pk}").delete_count
+    d = 0
+    primary = get_primary_metadata(user_id, model=_models[0], search_growing=False)
+    secondary = get_secondary_metadata(user_id,model=_models[0])
+    for f in _faces_collections:
+        d += _faces_collections[f].delete(f"user_picture_id in {pk}").delete_count
+    return primary, secondary, d
 
 def ping(timeout = 30):
-    if _faces_collection is None: get_faces_collection()
-    state = utility.load_state(_faces_collection.name, using=_conn_prefix, timeout=timeout)
-    if state != LoadState.Loaded:
-        raise Exception(f"Collection {_faces_collection.name} is in {state} state")
+    if len(_faces_collections) != len(_models): [get_faces_collection(m) for m in _models]
+    for m in _models:
+        state = utility.load_state(_faces_collections[m].name, using=_conn_prefix, timeout=timeout)
+        if state != LoadState.Loaded:
+            raise Exception(f"Collection {_faces_collections[m].name} is in {state} state")

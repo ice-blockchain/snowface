@@ -22,10 +22,11 @@ class NoFaces(Exception):
     def __init__(self, message):
         super().__init__(message)
 class FailedTryToDisable(Exception):
-    def __init__(self, message, sface_distance, arface_distance):
+    def __init__(self, message, sface_distance, arface_distance, matching_user_id):
         super().__init__(message)
         self.sface_distance = sface_distance
         self.arface_distance = arface_distance
+        self.matching_user_id = matching_user_id
 
 class UpsertException(Exception):
     def __init__(self, message):
