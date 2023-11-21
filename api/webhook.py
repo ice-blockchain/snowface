@@ -44,8 +44,8 @@ def callback(current_user, primary_md, secondary_md, user, user_id = ""):
         lastUpdated = [datetime.utcfromtimestamp(primary_md["uploaded_at"]/1e9).strftime(time_format)]
     if secondary_md is not None:
         lastUpdated.append(datetime.utcfromtimestamp(secondary_md["uploaded_at"]/1e9).strftime(time_format))
-
-    webhook_result = requests.post(url=url, headers={
+    processing_user_id = user_id if user_id else current_user.user_id
+    webhook_result = requests.post(url=url+"?userId="+processing_user_id, headers={
         "Authorization": f"Bearer {current_user.raw_token}",
         "X-Account-Metadata": current_user.metadata,
         "X-API-Key": current_app.config["METADATA_UPDATED_SECRET"],
