@@ -1,5 +1,11 @@
 import numpy as np
 
+def modelVectorLength(model: str):
+    models = {
+        "sface": 128,
+        "arcface": 512
+    }
+    return models[model]
 
 def findCosineDistance(source_representation, test_representation):
     a = np.matmul(np.transpose(source_representation), test_representation)
