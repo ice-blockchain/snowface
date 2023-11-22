@@ -772,8 +772,6 @@ def delete_user_photos_and_metadata(current_user, to_delete_user_id = "", force_
         raise Exception(str(errs))
 
     main_md, secondary_md, deleted_mds = _delete_metadatas(user_id, [f"{user_id}~0", f"{user_id}~1"])
-    if (deleted_mds == 0 or (main_md is None and secondary_md is None)) and prev_state is None:
-        raise exceptions.MetadataNotFound(f"face metadata for userId {user_id} was not deleted")
 
     if force_user_id == "":
         _full_user_reset(user_id)
@@ -793,10 +791,17 @@ def delete_user_photos_and_metadata(current_user, to_delete_user_id = "", force_
         _rollback_deletion(prev_state, user_id, main, secondary, main_md, secondary_md)
 
         raise e
+    except requests.HTTPError as e:
+        if (e is not None) and (e.response is not None) and e.response.status_code == 404:
+            raise exceptions.MetadataNotFound(f"face metadata for userId {user_id} was not deleted")
+        _rollback_deletion(prev_state, user_id, main, secondary, main_md, secondary_md)
+        raise e
     except Exception as e:
         _rollback_deletion(prev_state, user_id, main, secondary, main_md, secondary_md)
 
         raise e # goes to 5xx
+    if (deleted_mds == 0 or (main_md is None and secondary_md is None)) and prev_state is None:
+        raise exceptions.MetadataNotFound(f"face metadata for userId {user_id} was not deleted")
 
 def _rollback_expired(user_id: str, prev_state):
     if prev_state['session_started_at'] is not None:
@@ -820,9 +825,9 @@ def _rollback_deletion(prev_state, user_id, main, secondary, main_md, secondary_
     if secondary is not None:
         put_secondary_photo(user_id=user_id, photo_content=io.BytesIO(secondary))
     if main_md:
-        _set_primary_metadata(main_md["uploaded_at"], user_id, main_md["face_metadata"], main_md["url"])
+        _set_primary_metadata(main_md["uploaded_at"], user_id, main_md["face_metadata"], main_md["url"], model=_model_fallback)
     if secondary_md:
-        _update_secondary_metadata(secondary_md["uploaded_at"], user_id, secondary_md["face_metadata"], secondary_md["url"])
+        _update_secondary_metadata(secondary_md["uploaded_at"], user_id, secondary_md["face_metadata"], secondary_md["url"], model=_model_fallback)
 
     if prev_state is not None:
         _rollback_user_state(user_id, prev_state)
