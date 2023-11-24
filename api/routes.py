@@ -313,7 +313,7 @@ def liveness(current_user, user_id, session_id):
                 return {"message": "wrong image format", 'code': _invalid_properties}, 400
 
         try:
-            result, session_ended, emotions = service.process_images(token=current_user.raw_token, user_id=user_id, session_id=session_id, images=images)
+            result, session_ended, emotions = service.process_images(current_user=current_user, user_id=user_id, session_id=session_id, images=images)
 
             return {'result': result, 'sessionEnded': session_ended, 'emotions': emotions.split(","), 'sessionId': session_id}
         except exceptions.WrongImageSizeException as e:
