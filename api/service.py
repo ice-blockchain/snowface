@@ -837,12 +837,15 @@ def proxy_delete(current_user, user_id = ""):
     similarity_server = current_app.config['SIMILARITY_SERVER']
 
     url = f"{similarity_server[:-1] if similarity_server.endswith('/') else similarity_server}/v1w/face-auth/"
+    payload = None
     if user_id != "":
-        url = f"{url}{user_id}"
+        url = f"{url}?userId={user_id}"
+        payload = {"userId":user_id}
 
     response = requests.delete(
         url=url,
-        headers={"Authorization": f"Bearer {current_user.raw_token}", "X-Account-Metadata": current_user.metadata}
+        headers={"Authorization": f"Bearer {current_user.raw_token}", "X-Account-Metadata": current_user.metadata},
+        json=payload
     )
 
     return response.content, response.status_code
