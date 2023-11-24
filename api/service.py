@@ -590,12 +590,12 @@ def _save_image(image, idx, user_id):
 
         raise e
 
-def _send_best_images(similarity_server:str, token, user_id, files):
+def _send_best_images(similarity_server:str, current_user, user_id, files):
     try:
         response = requests.post(
             url=f"{similarity_server[:-1] if similarity_server.endswith('/') else similarity_server}/v1w/face-auth/similarity/{user_id}",
             files=files,
-            headers={"Authorization": f"Bearer {token}", "x-queued-time": str(float(time.time()))},
+            headers={"Authorization": f"Bearer {current_user.raw_token}","X-Account-Metadata": current_user.metadata, "x-queued-time": str(float(time.time()))},
             timeout=25
         )
     except requests.RequestException as e:
@@ -612,7 +612,7 @@ def _send_best_images(similarity_server:str, token, user_id, files):
 
     return True
 
-def _finish_session(usr, token):
+def _finish_session(usr, current_user):
     best_indexes = []
     for idx in np.argpartition(usr['best_pictures_score'], -current_app.config['TOTAL_BEST_PICTURES'])[-current_app.config['TOTAL_BEST_PICTURES']:]:
         best_indexes.append(str(idx))
@@ -626,7 +626,7 @@ def _finish_session(usr, token):
         executor.submit(
             _send_best_images,
             current_app.config['SIMILARITY_SERVER'],
-            token, usr['user_id'],
+            current_user, usr['user_id'],
             files
         )
     ]
@@ -638,7 +638,7 @@ def _finish_session(usr, token):
 
     return identity_match
 
-def process_images(token: str, user_id: str, session_id: str, images:list):
+def process_images(current_user, user_id: str, session_id: str, images:list):
     now = time.time_ns()
     usr = _get_user(user_id, search_growing=False)
     _validate_session(usr=usr, user_id=user_id, session_id=session_id, now=now)
@@ -739,7 +739,7 @@ def process_images(token: str, user_id: str, session_id: str, images:list):
     result = True
     if session_success:
         metrics.register_session_length(usr['emotion_sequence']+1)
-        result = _finish_session(usr, token)
+        result = _finish_session(usr, current_user)
         if not result:
             usr['last_negative_request_at'] = now
         session_ended = True
