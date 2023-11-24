@@ -1,11 +1,12 @@
 from prometheus_client import multiprocess
 import time, os
 import metrics
-from service import emotions_cleanup, _default_session_duration
+from service import emotions_cleanup, _default_session_duration, stop_wrongfully_disabled_users_worker
 from apscheduler.schedulers.background import BackgroundScheduler
 
 def worker_exit(server, worker):
     multiprocess.mark_process_dead(worker.pid)
+    stop_wrongfully_disabled_users_worker()
 def pre_request(worker, request):
     q_header = [float(h[1]) for h in request.headers if h[0].lower() == "x-queued-time"]
     queued_time = None

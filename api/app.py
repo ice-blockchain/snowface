@@ -8,7 +8,7 @@ from faces import init_milvus, close_milvus, _default_user, _default_password
 from users import _get_client as init_redis
 from auth import _get_firebase_client
 from minio_uploader import _client_with_initialized_bucket
-from service import init_models, _model, _model_fallback, _similarity_metric, _default_session_duration
+from service import init_models, _model, _model_fallback, _similarity_metric, _default_session_duration, start_wrongfully_disabled_users_worker
 from routes import init_rate_limiters
 import os
 from flask_executor import Executor
@@ -76,6 +76,7 @@ def create_app():
         app.config['IMG_STORAGE_PATH'] = app.config['IMG_STORAGE_PATH'] + '/'
     app.config['METRICS_USER'] = os.environ.get('METRICS_USER','metrics')
     app.config['METRICS_PASSWORD'] = os.environ.get('METRICS_PASSWORD')
+    app.config['WRONGFULLY_DISABLED_USERS_WORKERS'] = int(os.environ.get('WRONGFULLY_DISABLED_USERS_WORKERS',1))
     with app.app_context():
         when_ready(app)
 
@@ -88,6 +89,9 @@ def when_ready(app):
     if app.config['MINIO_URI']:
         _client_with_initialized_bucket()
     init_models()
+    if os.environ.get('MINIO_URI'):
+        start_wrongfully_disabled_users_worker()
+
 def on_exit(arbiter):
     close_milvus()
 
