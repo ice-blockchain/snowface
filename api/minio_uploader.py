@@ -57,6 +57,10 @@ def put_disabled_photo(user_id: str, photo_content):
     obj_name = f"{user_id}"
     return _upload(_disabled_users_bucket_name,obj_name,photo_content)
 
+def get_disabled_photo(user_id: str):
+    obj_name = f"{user_id}"
+    return _download(_disabled_users_bucket_name,obj_name)
+
 
 def put_proto(user_id: str, photo_id: int, photo_content):
     obj_name = f"{user_id}/{photo_id}"
@@ -76,10 +80,12 @@ def _upload(bucket, obj_name: str, photo_content):
     return "/" + _bucket_name + "/" + obj_name
 
 def get_photo(user_id: str, photo_id: int):
+    return _download(_bucket_name, f"{user_id}/{photo_id}")
+
+def _download(bucket: str, obj_name: str):
     try:
         client = _client_with_initialized_bucket()
-        obj_name = f"{user_id}/{photo_id}"
-        res = client.get_object(_bucket_name, obj_name)
+        res = client.get_object(bucket, obj_name)
         data = res.data
         res.close()
         res.release_conn()

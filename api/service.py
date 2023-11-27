@@ -10,7 +10,7 @@ from datetime import datetime
 from webhook import callback, UnauthorizedFromWebhook
 from flask import current_app
 import exceptions
-
+import jwt
 from faces import (
     get_primary_metadata                   as _get_primary_metadata,
     get_secondary_metadata                 as _get_secondary_metadata,
@@ -21,19 +21,24 @@ from faces import (
 )
 
 from users import (
-    update_user                            as _update_user,
-    disable_user                           as db_disable_user,
-    rollback_disabled_user                 as _rollback_disabled_user,
-    get_user                               as _get_user,
-    update_emotions_and_best_score         as _update_emotions_and_best_score,
-    remove_session                         as _remove_session,
-    update_last_negative_request_at        as _update_last_negative_request_at,
-    get_expired_sessions                   as _get_expired_sessions,
-    decrease_available_retries             as _decrease_available_retries,
-    full_user_reset                        as _full_user_reset,
-    remove_expired                         as _remove_expired,
-    set_expired                            as _set_expired,
-    enable_user                            as _enable_user
+    update_user                               as _update_user,
+    disable_user                              as db_disable_user,
+    rollback_disabled_user                    as _rollback_disabled_user,
+    get_user                                  as _get_user,
+    update_emotions_and_best_score            as _update_emotions_and_best_score,
+    remove_session                            as _remove_session,
+    update_last_negative_request_at           as _update_last_negative_request_at,
+    get_expired_sessions                      as _get_expired_sessions,
+    decrease_available_retries                as _decrease_available_retries,
+    full_user_reset                           as _full_user_reset,
+    remove_expired                            as _remove_expired,
+    set_expired                               as _set_expired,
+    enable_user                               as _enable_user,
+    get_disabled_user_for_selfie_reprocessing as _get_disabled_user_for_selfie_reprocessing,
+    put_disabled_user_for_selfie_reprocessing as _put_disabled_user_for_selfie_reprocessing,
+    get_admin_token                           as _get_admin_token,
+    unregister_wrongfully_disabled_users_worker   as _unregister_wrongfully_disabled_users_worker,
+    register_wrongfully_disabled_users_worker   as _register_wrongfully_disabled_users_worker
 )
 from PIL import Image
 import cv2
@@ -44,10 +49,15 @@ from concurrent.futures import ThreadPoolExecutor, wait
 from deepface import DeepFace
 from minio_uploader import (put_secondary_photo, put_primary_photo, get_primary_photo, get_secondary_photo,
                             delete_photos as _delete_photos,
-    put_disabled_photo as _put_disable_photo
+                            put_disabled_photo as _put_disable_photo,
+                            get_disabled_photo as _get_disabled_photo
 )
 import metrics
 import numpy as np
+
+from auth import Token
+
+from flask_executor import Executor
 
 _model = "SFace"
 _model_fallback = "ArcFace"#"Facenet" #"VGG-Face"
@@ -67,6 +77,10 @@ _default_emotions_list = [
     ['disgust']
 ]
 _default_session_duration = 600
+
+__admin_token = None
+__stop_wrongfully_disabled_users_worker = False
+
 
 def represent(img_path, model_name, detector_backend, enforce_detection, align):
     result = {}
@@ -128,7 +142,7 @@ def init_models():
     except requests.RequestException as e:
         logging.error(e, exc_info=e)
 
-def set_primary_photo_internal(current_user, user_id: str, photo_stream, attempt):
+def set_primary_photo_internal(user_id: str, photo_stream, attempt):
     try:
         img_objs, resp_objs = DeepFace.extract_faces_custom(
             img_path=loadImageFromStream(photo_stream),
@@ -159,7 +173,8 @@ def set_primary_photo_internal(current_user, user_id: str, photo_stream, attempt
                 raise exceptions.FailedTryToDisable(message=f"[secondary photo] Face {user_id} attempt:{attempt} is matching with user {similar_users[0]}, distance ({distances[0]}) < {threshold}, ({euclidian}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}",
                     sface_distance=distances[0],
                     arface_distance=euclidian,
-                    matching_user_id=similar_users[0]
+                    matching_user_id=similar_users[0],
+                    arcface_meta=md
                 )
             else:
                 logging.info(f"[primary photo, positive arface] Face {user_id}, attempt:{attempt}: {similar_users[0]}, distance ({euclidian}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
@@ -174,7 +189,8 @@ def set_primary_photo_internal(current_user, user_id: str, photo_stream, attempt
                     message=f"[primary photo, no secondary] Face {user_id}, attempt:{attempt} is matching with user {similar_users[0]}, distance {euclidian} < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}",
                     sface_distance=distances[0],
                     arface_distance=euclidian,
-                    matching_user_id=similar_users[0]
+                    matching_user_id=similar_users[0],
+                    arcface_meta=md
                 )
             else:
                 logging.info(f"[primary photo, no secondary, positive arface] Face {user_id}, attempt:{attempt}: {similar_users[0]}, distance ({euclidian}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
@@ -205,7 +221,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
         attempt = current_app.config["PRIMARY_PHOTO_RETRIES"]
 
     try:
-        md, md_sface = set_primary_photo_internal(current_user=current_user, user_id=user_id, photo_stream=photo_stream, attempt=current_app.config["PRIMARY_PHOTO_RETRIES"] - attempt + 1)
+        md, md_sface = set_primary_photo_internal(user_id=user_id, photo_stream=photo_stream, attempt=current_app.config["PRIMARY_PHOTO_RETRIES"] - attempt + 1)
     except exceptions.NoFaces as e:
         raise e
     except exceptions.FailedTryToDisable as e:
@@ -872,3 +888,100 @@ def reenable_user(current_user, user_id: str, duplicated_face: str):
             delete_user_photos_and_metadata(current_user, force_user_id=duplicated_face)
         except exceptions.MetadataNotFound as e:
             pass
+
+def _reprocess_wrongfully_disabled_users():
+    global __admin_token, __stop_wrongfully_disabled_users_worker
+    while 1:
+        if __stop_wrongfully_disabled_users_worker: break
+        try:
+            now = time.time_ns()
+            user_id = _get_disabled_user_for_selfie_reprocessing()
+            if user_id is None:
+                logging.debug(f"[reprocess_wrongfully_disabled_users] No user to process")
+                time.sleep(1)
+                continue
+            __admin_token = _get_admin_token()
+            if __admin_token is None:
+                logging.warning(f"[reprocess_wrongfully_disabled_users] admin token is not presented")
+                _put_disabled_user_for_selfie_reprocessing(user_id)
+                time.sleep(1)
+                continue
+            data = jwt.decode(__admin_token, options={"verify_signature": False})
+            expiration = data.get("exp",int(time.time()-60))
+            if expiration <= int(time.time()):
+                logging.warning(f"[reprocess_wrongfully_disabled_users] users are presented ({user_id}) but admin token is expired")
+                _put_disabled_user_for_selfie_reprocessing(user_id)
+                time.sleep(1)
+                continue
+            photo = _get_disabled_photo(user_id)
+            if not photo:
+                logging.warning(f"[reprocess_wrongfully_disabled_users] user {user_id} do not have disabled photo to reprocess")
+                continue
+            logging.debug(f"[reprocess_wrongfully_disabled_users] picked {user_id}")
+            _enable_user(user_id)
+            user = _get_user(user_id, search_growing=False)
+            user["disabled_at"] = 0
+            try:
+                md, md_sface = set_primary_photo_internal(user_id=user_id, photo_stream=io.BytesIO(photo), attempt=-1)
+            except exceptions.FailedTryToDisable as e:
+                md = e.arcface_metadata
+                md_sface = distance.l2_normalize(DeepFace.represent(
+                    img_path=loadImageFromStream(io.BytesIO(photo)),
+                    model_name=_model,
+                    detector_backend="skip",
+                    normalization="base",
+                    target_size=(112, 112),
+                )[0]["embedding"])
+            except Exception as e:
+                _put_disabled_user_for_selfie_reprocessing(user_id)
+                logging.error(f"[reprocess_wrongfully_disabled_users] User {user_id}: "+str(e), exc_info=e)
+                continue
+            try:
+                url = put_primary_photo(user_id,io.BytesIO(photo))
+                upd, rows = _set_primary_metadata(now, user_id, md, url, model=_model_fallback)
+                if rows > 0:
+                    _set_primary_metadata(now, user_id, md_sface, url, model=_model)
+                    metrics.register_primary_photo_uploaded()
+                    if __admin_token is None:
+                        __admin_token = _get_admin_token()
+                    try:
+                        callback(
+                            current_user=Token(__admin_token,"","","",""),
+                            primary_md=upd,
+                            secondary_md=None,
+                            user=user,
+                            user_id=user_id
+                        )
+                    except UnauthorizedFromWebhook as e:
+                        __admin_token = _get_admin_token()
+                        callback(
+                            current_user=Token(__admin_token,"","","",""),
+                            primary_md=upd,
+                            secondary_md=None,
+                            user=user,
+                            user_id=user_id,
+                        )
+            except Exception as e:
+                _put_disabled_user_for_selfie_reprocessing(user_id)
+                logging.error(f"[reprocess_wrongfully_disabled_users] User {user_id}: "+str(e), exc_info=e)
+        except Exception as e:
+            _put_disabled_user_for_selfie_reprocessing(user_id)
+            logging.error(f"[reprocess_wrongfully_disabled_users] User {user_id}: "+str(e), exc_info=e)
+
+
+
+def stop_wrongfully_disabled_users_worker():
+    global __stop_wrongfully_disabled_users_worker
+    _unregister_wrongfully_disabled_users_worker()
+    __stop_wrongfully_disabled_users_worker = True
+
+
+def start_wrongfully_disabled_users_worker():
+    w =  _register_wrongfully_disabled_users_worker()
+    if w > current_app.config["WRONGFULLY_DISABLED_USERS_WORKERS"]:
+        logging.debug(f"Worker {os.getpid()} skipping WRONGFULLY_DISABLED_USERS due to count is {w} {current_app.config['WRONGFULLY_DISABLED_USERS_WORKERS']}")
+        return
+
+    wrongfully_disabled_users_executor = Executor(current_app, "wrongfully_disabled_users_processor")
+    with current_app.test_request_context():
+        wrongfully_disabled_users_executor.submit(_reprocess_wrongfully_disabled_users)

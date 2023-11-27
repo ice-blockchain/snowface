@@ -175,6 +175,30 @@ def set_expired(session_started_at, user_id):
         user_id: 1
     })
 
+def get_disabled_user_for_selfie_reprocessing():
+    r = _get_client()
+    user_id  = r.spop("wrongfully_disabled_users", count=1)
+    if user_id is None or len(user_id) == 0:
+        return None
+    return str(user_id[0], encoding= "utf-8")
+def get_admin_token():
+    r = _get_client()
+    t = r.get("admin_token")
+    if t:
+        return str(t, encoding="utf-8")
+    return None
+def put_disabled_user_for_selfie_reprocessing(user_id: str):
+    r = _get_client()
+    return r.sadd("wrongfully_disabled_users", user_id) > 0
+
+def register_wrongfully_disabled_users_worker():
+    r = _get_client()
+    r.sadd("wrongfully_disabled_users_workers", os.getpid())
+    return int(r.scard("wrongfully_disabled_users_workers"))
+def unregister_wrongfully_disabled_users_worker():
+    r = _get_client()
+    r.spop("wrongfully_disabled_users_workers",1)
+    return int(r.scard("wrongfully_disabled_users_workers"))
 def ping():
     r = _get_client()
 
