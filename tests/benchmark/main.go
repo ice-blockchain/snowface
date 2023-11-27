@@ -21,16 +21,16 @@ func main() {
 	if f == "" {
 		panic("You must pass --folder")
 	}
-	r := 8 // 4 workers * 2 threads
+	r := 4 // 4 workers * 2 threads
 	if routines != nil && *routines != 0 {
 		r = *routines
 	}
-	h := "https://localhost:443"
+	h := "http://localhost:5000"
 	if host != nil && *host != "" {
 		h = *host
 	}
 	b := snowface.NewBenchmark(h, r, 10*time.Minute, f)
-	b.Benchmark(b.Liveness, b.LivenessParse)
+	//b.Benchmark(b.Liveness, b.LivenessParse)
 	//b.Benchmark(b.PrimaryPhoto, b.PrimaryPhotoParse)
-	//b.Benchmark(b.Similarity, b.SimilarityParse)
+	b.Benchmark(b.Similarity, b.SimilarityParse)
 }
