@@ -898,20 +898,20 @@ def _reprocess_wrongfully_disabled_users():
             user_id = _get_disabled_user_for_selfie_reprocessing()
             if user_id is None:
                 logging.debug(f"[reprocess_wrongfully_disabled_users] No user to process")
-                time.sleep(1)
+                time.sleep(60)
                 continue
             __admin_token = _get_admin_token()
             if __admin_token is None:
                 logging.warning(f"[reprocess_wrongfully_disabled_users] admin token is not presented")
                 _put_disabled_user_for_selfie_reprocessing(user_id)
-                time.sleep(1)
+                time.sleep(60)
                 continue
             data = jwt.decode(__admin_token, options={"verify_signature": False})
             expiration = data.get("exp",int(time.time()-60))
             if expiration <= int(time.time()):
                 logging.warning(f"[reprocess_wrongfully_disabled_users] users are presented ({user_id}) but admin token is expired")
                 _put_disabled_user_for_selfie_reprocessing(user_id)
-                time.sleep(1)
+                time.sleep(60)
                 continue
             photo = _get_disabled_photo(user_id)
             if not photo:
