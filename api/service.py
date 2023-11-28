@@ -286,11 +286,11 @@ def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_
 
     md_vector = user_reference_metadata["face_metadata"]
     pics = [loadImageFromStream(p) for p in raw_pics]
-    md, bestIndex, euclidian,threshold, bestNotFittingIndex = extract_and_compare_metadatas(md_vector, pics, _model)
+    best_md, bestIndex, euclidian,threshold, bestNotFittingIndex = extract_and_compare_metadatas(md_vector, pics, _model)
     if bestIndex == -1:
         euclidian_sface = euclidian
         sface_threshold = threshold
-        bestIndex, euclidian, threshold, bestNotFittingIndex = recheck_similarity_using_sface(md_vector, user_id, pics, md, bestNotFittingIndex)
+        best_md, bestIndex, euclidian, threshold, bestNotFittingIndex = recheck_similarity_using_sface(md_vector, user_id, pics, [best_md], bestNotFittingIndex)
         if bestIndex == -1:
             metrics.register_similarity_failure(euclidian_sface, euclidian)
 
@@ -298,7 +298,7 @@ def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_
 
     url = put_secondary_photo(user_id,raw_pics[bestIndex].stream)
     prev_state = _get_secondary_metadata(user_id, model=_model)
-    upd, rows = _update_secondary_metadata(now, user_id, md[bestIndex], url, model=_model)
+    upd, rows = _update_secondary_metadata(now, user_id, best_md, url, model=_model)
     ###
     # with metrics.represent_time.labels(model = _model_fallback).time():
     #     m = DeepFace.build_model(_model_fallback)
@@ -325,7 +325,7 @@ def recheck_similarity_using_sface(primary_md, user_id: str, pics: list, sface_m
     secondary_md = _get_secondary_metadata(user_id, model=_model)
     threshold = _similarity_threshold(_model_fallback)
     if not secondary_md:
-        return bestNotFittingIndex, 0, threshold, bestNotFittingIndex
+        return sface_metadatas[0], bestNotFittingIndex, 0, threshold, bestNotFittingIndex
 
     try:
         new_pic_md = distance.l2_normalize(DeepFace.represent(
@@ -342,7 +342,7 @@ def recheck_similarity_using_sface(primary_md, user_id: str, pics: list, sface_m
     if bestIndex == -1:
         bestIndex, euclidian, bestNotFittingIndex = compare_metadatas([primary_md, new_pic_md], threshold)
 
-    return bestIndex, euclidian, threshold, bestNotFittingIndex
+    return new_pic_md, bestIndex, euclidian, threshold, bestNotFittingIndex
 
 def recheck_similarity_using_arcface(primary_md, user_id: str, pics: list,sface_metadatas: list, bestNotFittingIndex: int):
     # user is not the same as on primary photo - let's try with more complex but slower model as well to reduce false-negatives
@@ -370,14 +370,7 @@ def recheck_similarity_using_arcface(primary_md, user_id: str, pics: list,sface_
     return bestIndex, euclidian, threshold, bestNotFittingIndex
 
 def extract_and_compare_metadatas(user_reference_metadata: list, pics, model):
-    metadata_to_compare = [user_reference_metadata]
     m = DeepFace.build_model(model)
-    # try:
-    #     face = DeepFace.extract_faces(img_path=pics[-1], target_size=(224, 224), detector_backend=_detector_low_quality, align=False)[0]
-    # except ValueError as e:
-    #     raise exceptions.NoFaces("No faces detected on metadata comparison")
-    #
-    # pics[-1] = face['face']
     def predict_pic(p):
         try:
             p = DeepFace.extract_faces(img_path=p, target_size=(224, 224), detector_backend=_detector_low_quality, align=False)[0]['face']
@@ -385,12 +378,23 @@ def extract_and_compare_metadatas(user_reference_metadata: list, pics, model):
             raise exceptions.NoFaces("No faces detected on metadata comparison")
         with metrics.represent_time.labels(model = model).time():
             return distance.l2_normalize(m.predict(np.expand_dims(p[::2,::2], axis=0))[0].tolist())
-
-    metadata_to_compare.extend([predict_pic(p) for p in pics])
     threshold = _similarity_threshold(model)
-    bestIndex, euclidian, bestNotFittingIndex = compare_metadatas(metadata_to_compare, threshold)
-
-    return metadata_to_compare, bestIndex, euclidian, threshold, bestNotFittingIndex
+    d = threshold + 1
+    idx = 0
+    best_idx = idx
+    best_distance = d
+    md = []
+    while d > threshold and idx < len(pics):
+        md = predict_pic(pics[idx])
+        current_distance = distance.findEuclideanDistance(user_reference_metadata, md)
+        if min(best_distance, current_distance) < best_distance:
+            best_idx = idx
+            best_distance = d
+        d = current_distance
+        idx += 1
+    if d > threshold:
+        return md, -1, d,threshold, best_idx
+    return md, best_idx,d,threshold, best_idx
 
 def _similarity_threshold(model: str):
     return current_app.config[f"SIMILARITY_{model.upper()}_DISTANCE"]
