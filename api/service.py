@@ -256,7 +256,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
     upd, rows = _set_primary_metadata(now, user_id, md, url, model=_model_fallback)
     if rows > 0:
         _set_primary_metadata(now, user_id, md_sface, url, model=_model)
-        metrics.register_primary_photo_uploaded()
+        metrics.register_primary_photo_uploaded(current_app.config["PRIMARY_PHOTO_RETRIES"] - attempt + 1)
         try:
             callback(
                 current_user=current_user,
@@ -949,7 +949,7 @@ def _reprocess_wrongfully_disabled_users():
                 upd, rows = _set_primary_metadata(now, user_id, md, url, model=_model_fallback)
                 if rows > 0:
                     _set_primary_metadata(now, user_id, md_sface, url, model=_model)
-                    metrics.register_primary_photo_uploaded()
+                    metrics.register_primary_photo_uploaded(1)
                     if __admin_token is None:
                         __admin_token = _get_admin_token()
                     try:
