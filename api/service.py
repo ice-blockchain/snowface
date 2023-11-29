@@ -142,7 +142,7 @@ def init_models():
     except requests.RequestException as e:
         logging.error(e, exc_info=e)
 
-def set_primary_photo_internal(user_id: str, photo_stream, attempt):
+def set_primary_photo_internal(now: int,user_id: str, photo_stream, attempt):
     try:
         img_objs, resp_objs = DeepFace.extract_faces_custom(
             img_path=loadImageFromStream(photo_stream),
@@ -172,7 +172,9 @@ def set_primary_photo_internal(user_id: str, photo_stream, attempt):
         similar_user_md = _get_primary_metadata(similar_users[0], model=_model_fallback, search_growing=False)["face_metadata"]
         # make sure it is not a false positive, let's check other picture as well
         secondary_md = _get_secondary_metadata(similar_users[0], model=_model)
-
+        existing_arcface_secondary_md = _get_secondary_metadata(similar_users[0], model=_model_fallback)
+        if existing_arcface_secondary_md:
+            existing_arcface_secondary_md=existing_arcface_secondary_md["face_metadata"]
         if secondary_md:
             secondary_md = secondary_md["face_metadata"]
             bestIndex, euclidian, bestNotFittingIndex = compare_metadatas([sface_md,secondary_md], current_app.config["PRIMARY_PHOTO_ARCFACE_DISTANCE"])
@@ -184,23 +186,45 @@ def set_primary_photo_internal(user_id: str, photo_stream, attempt):
                     arcface_meta=md
                 )
             else:
-                logging.info(f"[primary photo, positive arface] Face {user_id}, attempt:{attempt}: {similar_users[0]}, distance ({euclidian}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
+                if not existing_arcface_secondary_md:
+                    most_similar_user_photo = get_secondary_photo(similar_users[0])
+                    if most_similar_user_photo:
+                        existing_arcface_secondary_md = distance.l2_normalize(DeepFace.represent(
+                            img_path=loadImageFromStream(io.BytesIO(most_similar_user_photo)),
+                            model_name=_model_fallback,
+                            detector_backend="yunet",
+                            normalization="base",
+                            target_size=(112, 112),
+                        )[0]["embedding"])
+                        _update_secondary_metadata(now,user_id=similar_users[0],metadata=existing_arcface_secondary_md,url="/photos/"+similar_users[0]+"/1",model=_model_fallback)
+                if existing_arcface_secondary_md is not None:
+                    bestIndex, euclidian, bestNotFittingIndex = compare_metadatas([md,existing_arcface_secondary_md], current_app.config["PRIMARY_PHOTO_ARCFACE_DISTANCE"])
+                    if bestIndex != -1:
+                        raise exceptions.FailedTryToDisable(message=f"[secondary photo] Face {user_id} attempt:{attempt} is matching with user {similar_users[0]}, distance ({distances[0]}) < {threshold}, ({euclidian}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}",
+                                                            sface_distance=distances[0],
+                                                            arface_distance=euclidian,
+                                                            matching_user_id=similar_users[0],
+                                                            arcface_meta=md
+                                                            )
+                    else:
+                        logging.info(f"[primary photo, positive arcface] Face {user_id}, attempt:{attempt}: {similar_users[0]}, distance ({euclidian}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
+                        return md, sface_md
+
+        # that similar user dont have 2nd pic yet,but we can re-check with fallback model
+        bestIndex, euclidian, bestNotFittingIndex = compare_metadatas([md,similar_user_md], current_app.config["PRIMARY_PHOTO_ARCFACE_DISTANCE"])
+
+        if bestIndex != -1:
+            logging.info(f"[primary photo, no secondary] Face {user_id}, attempt:{attempt} is matching with user {similar_users[0]}, distance {euclidian} < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
+
+            raise exceptions.FailedTryToDisable(
+                message=f"[primary photo, no secondary] Face {user_id}, attempt:{attempt} is matching with user {similar_users[0]}, distance {euclidian} < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}",
+                sface_distance=distances[0],
+                arface_distance=euclidian,
+                matching_user_id=similar_users[0],
+                arcface_meta=md
+            )
         else:
-            # that similar user dont have 2nd pic yet,but we can re-check with fallback model
-            bestIndex, euclidian, bestNotFittingIndex = compare_metadatas([md,similar_user_md], current_app.config["PRIMARY_PHOTO_ARCFACE_DISTANCE"])
-
-            if bestIndex != -1:
-                logging.info(f"[primary photo, no secondary] Face {user_id}, attempt:{attempt} is matching with user {similar_users[0]}, distance {euclidian} < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
-
-                raise exceptions.FailedTryToDisable(
-                    message=f"[primary photo, no secondary] Face {user_id}, attempt:{attempt} is matching with user {similar_users[0]}, distance {euclidian} < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}",
-                    sface_distance=distances[0],
-                    arface_distance=euclidian,
-                    matching_user_id=similar_users[0],
-                    arcface_meta=md
-                )
-            else:
-                logging.info(f"[primary photo, no secondary, positive arface] Face {user_id}, attempt:{attempt}: {similar_users[0]}, distance ({euclidian}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
+            logging.info(f"[primary photo, no secondary, positive arface] Face {user_id}, attempt:{attempt}: {similar_users[0]}, distance ({euclidian}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
     else:
         logging.info(f"[milvus, positive] Face {user_id}, attempt:{attempt}: {similar_users}, distance ({distances}) < {current_app.config['PRIMARY_PHOTO_SFACE_DISTANCE']}")
     return md, sface_md
@@ -221,7 +245,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
         attempt = current_app.config["PRIMARY_PHOTO_RETRIES"]
 
     try:
-        md, md_sface = set_primary_photo_internal(user_id=user_id, photo_stream=photo_stream, attempt=current_app.config["PRIMARY_PHOTO_RETRIES"] - attempt + 1)
+        md, md_sface = set_primary_photo_internal(now, user_id=user_id, photo_stream=photo_stream, attempt=current_app.config["PRIMARY_PHOTO_RETRIES"] - attempt + 1)
     except exceptions.NoFaces as e:
         raise e
     except exceptions.FailedTryToDisable as e:
@@ -930,7 +954,7 @@ def _reprocess_wrongfully_disabled_users():
             user = _get_user(user_id, search_growing=False)
             user["disabled_at"] = 0
             try:
-                md, md_sface = set_primary_photo_internal(user_id=user_id, photo_stream=io.BytesIO(photo), attempt=-1)
+                md, md_sface = set_primary_photo_internal(now,user_id=user_id, photo_stream=io.BytesIO(photo), attempt=-1)
             except exceptions.FailedTryToDisable as e:
                 md = e.arcface_metadata
                 md_sface = distance.l2_normalize(DeepFace.represent(
