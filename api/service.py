@@ -952,6 +952,8 @@ def _reprocess_wrongfully_disabled_users():
             logging.debug(f"[reprocess_wrongfully_disabled_users] picked {user_id}")
             _enable_user(user_id)
             user = _get_user(user_id, search_growing=False)
+            if user is None:
+                user = {"user_id": user_id}
             user["disabled_at"] = 0
             try:
                 md, md_sface = set_primary_photo_internal(now,user_id=user_id, photo_stream=io.BytesIO(photo), attempt=-1)
