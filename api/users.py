@@ -1,6 +1,6 @@
 import redis, os
 from flask import current_app
-
+from typing import List
 _client = None
 
 def _get_client():
@@ -104,7 +104,9 @@ def get_user(user_id: str, search_growing = True):
               "last_negative_request_at",
               "emotion_sequence",
               "best_pictures_score",
-              "available_retries"
+              "available_retries",
+              "possible_duplicate_with",
+              "ip"
             ]
     mappers = {
         "session_id": lambda x: str(x, encoding = "utf-8") if x else "",
@@ -115,6 +117,8 @@ def get_user(user_id: str, search_growing = True):
         "emotion_sequence": lambda x: int(x) if x else 0,
         "best_pictures_score": lambda x: x,
         "available_retries": int,
+        "possible_duplicate_with": lambda x: str(x, encoding = "utf-8").split(",") if x else [],
+        "ip":lambda x: str(x, encoding = "utf-8") if x else ""
     }
     res = r.hmget(_userKey(user_id),hkeys)
     if res.count(None) == len(hkeys):
@@ -202,6 +206,15 @@ def unregister_wrongfully_disabled_users_worker():
 def clean_wrongfully_disabled_users_workers():
     r = _get_client()
     r.delete("wrongfully_disabled_users_workers",1)
+
+def mark_user_for_manual_review(user_id: str, ip: str, similar_users: List[str], duplicate_review_count: int):
+    r = _get_client()
+    if r.hset(_userKey(user_id),mapping = {
+        "ip":ip,
+        "possible_duplicate_with": ",".join(similar_users)
+    }) > 0:
+        return r.sadd("users_pending_duplicate_review", user_id) > 0
+    return False
 def ping():
     r = _get_client()
 

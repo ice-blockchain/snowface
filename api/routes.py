@@ -214,6 +214,8 @@ def primary_photo(current_user, user_id):
             return {"message": str(e), "code":_user_disabled}, 403
         except webhook.UnauthorizedFromWebhook as e:
             return str(e), 401
+        except exceptions.RateLimitException as e:
+            return {"message": f"user is on manual review", "code":_rate_limit_exceeded}, 429
         except Exception as e:
             _log_error(current_user, e, True)
 

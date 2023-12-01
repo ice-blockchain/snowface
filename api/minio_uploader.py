@@ -12,7 +12,7 @@ _minio_client = None
 
 _bucket_name = "photos"
 _disabled_users_bucket_name = "disabled"
-
+_review_photo_bucket_name = "review"
 _picture_primary = 0
 _picture_secondary = 1
 
@@ -34,6 +34,11 @@ def _get_minio_client():
                     raise e
         if not _minio_client.bucket_exists(_disabled_users_bucket_name):
             try: _minio_client.make_bucket(_disabled_users_bucket_name)
+            except minio.error.S3Error as e:
+                if e.code != "BucketAlreadyOwnedByYou":
+                    raise e
+        if not _minio_client.bucket_exists(_review_photo_bucket_name):
+            try: _minio_client.make_bucket(_review_photo_bucket_name)
             except minio.error.S3Error as e:
                 if e.code != "BucketAlreadyOwnedByYou":
                     raise e
@@ -60,6 +65,14 @@ def put_disabled_photo(user_id: str, photo_content):
 def get_disabled_photo(user_id: str):
     obj_name = f"{user_id}"
     return _download(_disabled_users_bucket_name,obj_name)
+
+def put_review_photo(user_id: str, photo_content):
+    obj_name = f"{user_id}"
+    return _upload(_review_photo_bucket_name,obj_name,photo_content)
+
+def get_review_photo(user_id: str):
+    obj_name = f"{user_id}"
+    return _download(_review_photo_bucket_name,obj_name)
 
 
 def put_proto(user_id: str, photo_id: int, photo_content):

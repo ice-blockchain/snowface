@@ -38,7 +38,8 @@ from users import (
     put_disabled_user_for_selfie_reprocessing as _put_disabled_user_for_selfie_reprocessing,
     get_admin_token                           as _get_admin_token,
     unregister_wrongfully_disabled_users_worker   as _unregister_wrongfully_disabled_users_worker,
-    register_wrongfully_disabled_users_worker   as _register_wrongfully_disabled_users_worker
+    register_wrongfully_disabled_users_worker   as _register_wrongfully_disabled_users_worker,
+    mark_user_for_manual_review                as _mark_user_for_manual_review
 )
 from PIL import Image
 import cv2
@@ -50,7 +51,9 @@ from deepface import DeepFace
 from minio_uploader import (put_secondary_photo, put_primary_photo, get_primary_photo, get_secondary_photo,
                             delete_photos as _delete_photos,
                             put_disabled_photo as _put_disable_photo,
-                            get_disabled_photo as _get_disabled_photo
+                            get_disabled_photo as _get_disabled_photo,
+                            get_review_photo   as _get_review_photo,
+                            put_review_photo   as _put_review_photo
 )
 import metrics
 import numpy as np
@@ -183,7 +186,8 @@ def set_primary_photo_internal(now: int,user_id: str, photo_stream, attempt):
                     sface_distance=distances[0],
                     arface_distance=euclidian,
                     matching_user_id=similar_users[0],
-                    arcface_meta=md
+                    arcface_meta=md,
+                    similar_users = similar_users
                 )
             else:
                 if not existing_arcface_secondary_md:
@@ -204,11 +208,12 @@ def set_primary_photo_internal(now: int,user_id: str, photo_stream, attempt):
                                                             sface_distance=distances[0],
                                                             arface_distance=euclidian,
                                                             matching_user_id=similar_users[0],
-                                                            arcface_meta=md
+                                                            arcface_meta=md,
+                                                            similar_users = similar_users
                                                             )
                     else:
                         logging.info(f"[primary photo, positive arcface] Face {user_id}, attempt:{attempt}: {similar_users[0]}, distance ({euclidian}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
-                        return md, sface_md
+                        return md, sface_md, similar_users
 
         # that similar user dont have 2nd pic yet,but we can re-check with fallback model
         bestIndex, euclidian, bestNotFittingIndex = compare_metadatas([md,similar_user_md], current_app.config["PRIMARY_PHOTO_ARCFACE_DISTANCE"])
@@ -221,19 +226,24 @@ def set_primary_photo_internal(now: int,user_id: str, photo_stream, attempt):
                 sface_distance=distances[0],
                 arface_distance=euclidian,
                 matching_user_id=similar_users[0],
-                arcface_meta=md
+                arcface_meta=md,
+                similar_users = similar_users
             )
         else:
             logging.info(f"[primary photo, no secondary, positive arface] Face {user_id}, attempt:{attempt}: {similar_users[0]}, distance ({euclidian}) < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
     else:
         logging.info(f"[milvus, positive] Face {user_id}, attempt:{attempt}: {similar_users}, distance ({distances}) < {current_app.config['PRIMARY_PHOTO_SFACE_DISTANCE']}")
-    return md, sface_md
+    if similar_users[0] == user_id:
+        similar_users.pop()
+    return md, sface_md, similar_users
 
 def set_primary_photo(current_user, user_id: str, photo_stream):
     now = time.time_ns()
     user = _get_user(user_id, search_growing=False)
     if user is not None and user["disabled_at"] > 0:
         raise exceptions.UserDisabled(f"User {user_id} was disabled at {user['disabled_at']}")
+    if user is not None and user["possible_duplicate_with"]:
+        raise exceptions.RateLimitException(f"User was forwarded to manual review")
 
     existing_md = _get_primary_metadata(user_id, search_growing=False, model=_model_fallback)
     if existing_md is not None:
@@ -245,37 +255,34 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
         attempt = current_app.config["PRIMARY_PHOTO_RETRIES"]
 
     try:
-        md, md_sface = set_primary_photo_internal(now, user_id=user_id, photo_stream=photo_stream, attempt=current_app.config["PRIMARY_PHOTO_RETRIES"] - attempt + 1)
+        md, md_sface, similar_users = set_primary_photo_internal(now, user_id=user_id, photo_stream=photo_stream, attempt=current_app.config["PRIMARY_PHOTO_RETRIES"] - attempt + 1)
     except exceptions.NoFaces as e:
         raise e
     except exceptions.FailedTryToDisable as e:
         _decrease_available_retries(user, user_id)
 
         if user is not None and attempt <= 1:
-            disabled = _disable_user(now,user_id, photo_stream.stream)
-            if disabled:
-                metrics.register_disabled_user(e.sface_distance, e.arface_distance)
-
-                try:
-                    callback(
-                        current_user=current_user,
-                        primary_md=None,
-                        secondary_md=None,
-                        user={"disabled_at": now}
-                    )
-                except UnauthorizedFromWebhook as ex:
-                    _rollback_disabled_user(user_id)
-
-                    raise ex
-                except Exception as ex:
-                    _rollback_disabled_user(user_id)
-
-                    raise ex # goes to 5xx
-
-                raise exceptions.UserDisabled(f"Face {user_id}  is matching with user {e.matching_user_id}, attempt:{current_app.config['PRIMARY_PHOTO_RETRIES']}, distance {e.sface_distance} < {current_app.config['PRIMARY_PHOTO_SFACE_DISTANCE']}, {e.arface_distance} < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
-
+            #primary_photo_declined(e,now,current_user,user_id, photo_stream)
+            _primary_photo_to_review(now,current_user,user_id,user,photo_stream,e.similar_users,"TODO IP Here")
+            return
         raise e
 
+    _primary_photo_passed(now, current_user,user_id,user,photo_stream, md_sface, md, attempt)
+
+def _primary_photo_to_review(now,current_user,user_id, user, photo_stream,similar_users, ip):
+    _mark_user_for_manual_review(user_id,ip,similar_users,user.get("duplicate_review_count",0))
+    _put_review_photo(user_id,photo_stream)
+    # we have noting to rollback, so exception straight to 5xx to retry from FE
+    callback(
+        current_user=current_user,
+        primary_md={"uploaded_at": now},
+        secondary_md=None,
+        user=user,
+        potentially_duplicate=True
+    )
+
+
+def _primary_photo_passed(now, current_user,user_id,user, photo_stream, md_sface, md, attempt):
     url = put_primary_photo(user_id,photo_stream.stream)
     upd, rows = _set_primary_metadata(now, user_id, md, url, model=_model_fallback)
     if rows > 0:
@@ -296,6 +303,28 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
             _delete_metadatas(user_id, [upd["user_picture_id"]])
 
             raise e # goes to 5xx
+
+def _primary_photo_declined(e,now,current_user,user_id, photo_stream):
+    disabled = _disable_user(now,user_id, photo_stream.stream)
+    if disabled:
+        metrics.register_disabled_user(e.sface_distance, e.arface_distance)
+        try:
+            callback(
+                current_user=current_user,
+                primary_md=None,
+                secondary_md=None,
+                user={"disabled_at": now}
+            )
+        except UnauthorizedFromWebhook as ex:
+            _rollback_disabled_user(user_id)
+
+            raise ex
+        except Exception as ex:
+            _rollback_disabled_user(user_id)
+
+            raise ex # goes to 5xx
+
+        raise exceptions.UserDisabled(f"Face {user_id}  is matching with user {e.matching_user_id}, attempt:{current_app.config['PRIMARY_PHOTO_RETRIES']}, distance {e.sface_distance} < {current_app.config['PRIMARY_PHOTO_SFACE_DISTANCE']}, {e.arface_distance} < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
 
 def _disable_user(now, user_id, photo_content):
     _put_disable_photo(user_id,photo_content)
@@ -510,8 +539,9 @@ def emotions(user_id):
     if usr is not None:
         if usr['disabled_at'] is not None and usr['disabled_at'] > 0:
             raise exceptions.UserDisabled(f"user:{usr['user_id']} disabled")
-
-        if usr['last_negative_request_at'] > 0 and now - usr['last_negative_request_at'] <= current_app.config['LIMIT_RATE_NEGATIVE']:
+        # if user is on review with possible_duplicate_with flag then
+        # in normal conditions he cannot reach here, but we cannot return disabled due to FE dialog
+        if usr['possible_duplicate_with'] or (usr['last_negative_request_at'] > 0 and now - usr['last_negative_request_at'] <= current_app.config['LIMIT_RATE_NEGATIVE']):
             raise exceptions.NegativeRateLimitException(f"limit rate time didn't pass from the last negative try for user:{user_id} time: {usr['last_negative_request_at']}")
 
         secondary = _get_secondary_metadata(user_id, model=_model)
@@ -691,7 +721,7 @@ def process_images(current_user, user_id: str, session_id: str, images:list):
     usr = _get_user(user_id, search_growing=False)
     _validate_session(usr=usr, user_id=user_id, session_id=session_id, now=now)
 
-    if usr['last_negative_request_at'] > 0 and now - usr['last_negative_request_at'] <= current_app.config['LIMIT_RATE_NEGATIVE']:
+    if usr['possible_duplicate_with'] or (usr['last_negative_request_at'] > 0 and now - usr['last_negative_request_at'] <= current_app.config['LIMIT_RATE_NEGATIVE']):
         raise exceptions.NegativeRateLimitException(f"limit rate time didn't pass from the last negative try for user:{user_id} time: {usr['last_negative_request_at']}")
 
     current_emotions_list = usr['emotions'].split(',')
@@ -956,7 +986,7 @@ def _reprocess_wrongfully_disabled_users():
                 user = {"user_id": user_id}
             user["disabled_at"] = 0
             try:
-                md, md_sface = set_primary_photo_internal(now,user_id=user_id, photo_stream=io.BytesIO(photo), attempt=-1)
+                md, md_sface,similar_users = set_primary_photo_internal(now,user_id=user_id, photo_stream=io.BytesIO(photo), attempt=-1)
             except exceptions.FailedTryToDisable as e:
                 md = e.arcface_metadata
                 md_sface = distance.l2_normalize(DeepFace.represent(
