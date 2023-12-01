@@ -215,6 +215,17 @@ def mark_user_for_manual_review(user_id: str, ip: str, similar_users: List[str],
     }) > 0:
         return r.sadd("users_pending_duplicate_review", user_id) > 0
     return False
+
+def allocate_review_user(admin_id: str):
+    r = _get_client()
+    # TODO tx
+    user_id = r.get(f"user_pending_duplicate_review_{admin_id}")
+    if user_id and len(user_id):
+        return str(user_id,encoding = "utf-8")
+    user_id = str(r.spop("users_pending_duplicate_review"), encoding = "utf-8")
+    r.set(f"user_pending_duplicate_review_{admin_id}", user_id)
+    return user_id
+
 def ping():
     r = _get_client()
 

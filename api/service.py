@@ -41,6 +41,8 @@ from users import (
     register_wrongfully_disabled_users_worker   as _register_wrongfully_disabled_users_worker,
     mark_user_for_manual_review                as _mark_user_for_manual_review
 )
+import review
+
 from PIL import Image
 import cv2
 
@@ -263,24 +265,11 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
 
         if user is not None and attempt <= 1:
             #primary_photo_declined(e,now,current_user,user_id, photo_stream)
-            _primary_photo_to_review(now,current_user,user_id,user,photo_stream,e.similar_users,"TODO IP Here")
+            review._primary_photo_to_review(now,current_user,user_id,user,photo_stream,e.similar_users,"TODO IP Here")
             return
         raise e
 
     _primary_photo_passed(now, current_user,user_id,user,photo_stream, md_sface, md, attempt)
-
-def _primary_photo_to_review(now,current_user,user_id, user, photo_stream,similar_users, ip):
-    _mark_user_for_manual_review(user_id,ip,similar_users,user.get("duplicate_review_count",0))
-    _put_review_photo(user_id,photo_stream)
-    # we have noting to rollback, so exception straight to 5xx to retry from FE
-    callback(
-        current_user=current_user,
-        primary_md={"uploaded_at": now},
-        secondary_md=None,
-        user=user,
-        potentially_duplicate=True
-    )
-
 
 def _primary_photo_passed(now, current_user,user_id,user, photo_stream, md_sface, md, attempt):
     url = put_primary_photo(user_id,photo_stream.stream)
@@ -950,6 +939,11 @@ def reenable_user(current_user, user_id: str, duplicated_face: str):
             delete_user_photos_and_metadata(current_user, force_user_id=duplicated_face)
         except exceptions.MetadataNotFound as e:
             pass
+
+def review_duplicates(current_user: Token, user_id:str, decision: str):
+    if user_id and decision:
+        review.make_decision(user_id, decision)
+    return review.next_user_for_review(current_user.user_id)
 
 def _reprocess_wrongfully_disabled_users():
     global __admin_token, __stop_wrongfully_disabled_users_worker

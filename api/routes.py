@@ -1,3 +1,5 @@
+import base64
+
 from flask import Blueprint, request, current_app, Response
 import service, exceptions, webhook
 
@@ -14,6 +16,9 @@ from flask_httpauth import HTTPBasicAuth
 from faces import ping as milvus_ping
 from users import ping as redis_ping
 from minio_uploader import ping as minio_ping
+import review
+
+
 
 blueprint = Blueprint("routes", __name__)
 
@@ -372,6 +377,25 @@ def enable_user(current_user: Token):
         _log_error(current_user, e, True)
 
         return {"message": str(e)}, 500
+
+@blueprint.route("/v1w/face-auth/primary_photo/review_duplicates", methods = ["POST"])
+@auth_required
+def review_duplicates(current_user: Token):
+    if current_user.role != "admin":
+        return {'message': f'insufficient role: "{current_user.role}"'}, 403
+    user_id = request.args.get("userId")
+    decision = request.args.get("decision")
+    if decision and decision not in ("duplicate","not_duplicate", "retry"):
+        return {"message":f"invalid decision: '{decision}'"},422
+
+    next_user_for_review = service.review_duplicates(user_id, decision)
+    return {
+        "userId": next_user_for_review.user_id,
+        "selfie": base64.b64encode(next_user_for_review.primary_photo),
+        "retries" : next_user_for_review.retries,
+        "ip" : next_user_for_review.ip,
+        "duplicateUsers": [{"userId": dupl.user_id, "selfie": dupl.primary_photo} for dupl in next_user_for_review.possible_duplicates]
+    }, 200
 
 metricsauth = HTTPBasicAuth()
 @metricsauth.verify_password
