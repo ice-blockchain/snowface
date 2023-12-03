@@ -199,6 +199,9 @@ def unregister_wrongfully_disabled_users_worker():
     r = _get_client()
     r.spop("wrongfully_disabled_users_workers",1)
     return int(r.scard("wrongfully_disabled_users_workers"))
+def clean_wrongfully_disabled_users_workers():
+    r = _get_client()
+    r.delete("wrongfully_disabled_users_workers",1)
 def ping():
     r = _get_client()
 
