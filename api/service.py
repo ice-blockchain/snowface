@@ -41,7 +41,7 @@ from users import (
     register_wrongfully_disabled_users_worker   as _register_wrongfully_disabled_users_worker,
     mark_user_for_manual_review                as _mark_user_for_manual_review
 )
-import review
+import review, primary_photo
 
 from PIL import Image
 import cv2
@@ -64,7 +64,7 @@ from auth import Token
 
 from flask_executor import Executor
 
-_model = "SFace"
+_model = primary_photo._model
 _model_fallback = "ArcFace"#"Facenet" #"VGG-Face"
 _detector_high_quality = "yunet"
 _detector_low_quality = "yunet" # TODO: test with skip, if we gonna get proper photos from FE
@@ -269,51 +269,8 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
             return
         raise e
 
-    _primary_photo_passed(now, current_user,user_id,user,photo_stream, md_sface, md, attempt)
+    primary_photo._primary_photo_passed(now, current_user,user_id,user,photo_stream, md_sface, md, attempt)
 
-def _primary_photo_passed(now, current_user,user_id,user, photo_stream, md_sface, md, attempt):
-    url = put_primary_photo(user_id,photo_stream.stream)
-    upd, rows = _set_primary_metadata(now, user_id, md, url, model=_model_fallback)
-    if rows > 0:
-        _set_primary_metadata(now, user_id, md_sface, url, model=_model)
-        metrics.register_primary_photo_uploaded(current_app.config["PRIMARY_PHOTO_RETRIES"] - attempt + 1)
-        try:
-            callback(
-                current_user=current_user,
-                primary_md=upd,
-                secondary_md=None,
-                user=user
-            )
-        except UnauthorizedFromWebhook as e:
-            _delete_metadatas(user_id, [upd["user_picture_id"]])
-
-            raise e
-        except Exception as e:
-            _delete_metadatas(user_id, [upd["user_picture_id"]])
-
-            raise e # goes to 5xx
-
-def _primary_photo_declined(e,now,current_user,user_id, photo_stream):
-    disabled = _disable_user(now,user_id, photo_stream.stream)
-    if disabled:
-        metrics.register_disabled_user(e.sface_distance, e.arface_distance)
-        try:
-            callback(
-                current_user=current_user,
-                primary_md=None,
-                secondary_md=None,
-                user={"disabled_at": now}
-            )
-        except UnauthorizedFromWebhook as ex:
-            _rollback_disabled_user(user_id)
-
-            raise ex
-        except Exception as ex:
-            _rollback_disabled_user(user_id)
-
-            raise ex # goes to 5xx
-
-        raise exceptions.UserDisabled(f"Face {user_id}  is matching with user {e.matching_user_id}, attempt:{current_app.config['PRIMARY_PHOTO_RETRIES']}, distance {e.sface_distance} < {current_app.config['PRIMARY_PHOTO_SFACE_DISTANCE']}, {e.arface_distance} < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
 
 def _disable_user(now, user_id, photo_content):
     _put_disable_photo(user_id,photo_content)
@@ -941,8 +898,9 @@ def reenable_user(current_user, user_id: str, duplicated_face: str):
             pass
 
 def review_duplicates(current_user: Token, user_id:str, decision: str):
+    now - time.time_ns()
     if user_id and decision:
-        review.make_decision(user_id, decision)
+        review.make_decision(now,current_user, decision)
     return review.next_user_for_review(current_user.user_id)
 
 def _reprocess_wrongfully_disabled_users():

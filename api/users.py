@@ -218,13 +218,25 @@ def mark_user_for_manual_review(user_id: str, ip: str, similar_users: List[str],
 
 def allocate_review_user(admin_id: str):
     r = _get_client()
-    # TODO tx
-    user_id = r.get(f"user_pending_duplicate_review_{admin_id}")
-    if user_id and len(user_id):
-        return str(user_id,encoding = "utf-8")
-    user_id = str(r.spop("users_pending_duplicate_review"), encoding = "utf-8")
-    r.set(f"user_pending_duplicate_review_{admin_id}", user_id)
-    return user_id
+    with r.pipeline(transaction=True) as p:
+        user_id = p.get(f"user_pending_duplicate_review_{admin_id}")
+        if user_id and len(user_id):
+            p.discard()
+            return str(user_id,encoding = "utf-8")
+        user_id = str(p.spop("users_pending_duplicate_review"), encoding = "utf-8")
+        p.set(f"user_pending_duplicate_review_{admin_id}", user_id)
+        p.execute()
+        return user_id
+def user_reviewed(admin_id: str, user_id: str, retry = False):
+    r = _get_client()
+    with r.pipeline(transaction=True) as p:
+        if retry:
+            p.hincr(_userKey(user_id),"duplicate_review_count")
+        else:
+            p.hdel(_userKey(user_id),"duplicate_review_count")
+        p.hdel(_userKey(user_id),"possible_duplicate_with")
+        p.delete(f"user_pending_duplicate_review_{admin_id}")
+
 
 def ping():
     r = _get_client()
