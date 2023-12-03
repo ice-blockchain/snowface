@@ -934,7 +934,7 @@ def _reprocess_wrongfully_disabled_users():
                 continue
             __admin_token = _get_admin_token()
             if __admin_token is None:
-                logging.warning(f"[reprocess_wrongfully_disabled_users] admin token is not presented")
+                logging.warning(f"[reprocess_wrongfully_disabled_users] users are presented ({user_id}) but admin token is not presented")
                 _put_disabled_user_for_selfie_reprocessing(user_id)
                 time.sleep(60)
                 continue
@@ -949,7 +949,7 @@ def _reprocess_wrongfully_disabled_users():
             if not photo:
                 logging.warning(f"[reprocess_wrongfully_disabled_users] user {user_id} do not have disabled photo to reprocess")
                 continue
-            logging.debug(f"[reprocess_wrongfully_disabled_users] picked {user_id}")
+            logging.info(f"[reprocess_wrongfully_disabled_users] picked {user_id}")
             user = _get_user(user_id, search_growing=False)
             _enable_user(user_id)
             if user is None:
@@ -1013,7 +1013,7 @@ def stop_wrongfully_disabled_users_worker():
 def start_wrongfully_disabled_users_worker():
     w =  _register_wrongfully_disabled_users_worker()
     if w > current_app.config["WRONGFULLY_DISABLED_USERS_WORKERS"]:
-        logging.debug(f"Worker {os.getpid()} skipping WRONGFULLY_DISABLED_USERS due to count is {w} {current_app.config['WRONGFULLY_DISABLED_USERS_WORKERS']}")
+        logging.info(f"Worker {os.getpid()} skipping WRONGFULLY_DISABLED_USERS due to count is {w} {current_app.config['WRONGFULLY_DISABLED_USERS_WORKERS']}")
         return
 
     wrongfully_disabled_users_executor = Executor(current_app, "wrongfully_disabled_users_processor")
