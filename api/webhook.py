@@ -28,7 +28,8 @@ def _log(r):
                       giveup=_check_status_code,
                       on_backoff=_log,
                       interval = 0.1,
-                      max_tries = 15
+                      max_tries = 15,
+                      max_time = 49
                       )
 def callback(current_user, primary_md, secondary_md, user, user_id = ""):
     time_format = '%Y-%m-%dT%H:%M:%S.%fZ%Z'
@@ -50,7 +51,7 @@ def callback(current_user, primary_md, secondary_md, user, user_id = ""):
         "X-Account-Metadata": current_user.metadata,
         "X-API-Key": current_app.config["METADATA_UPDATED_SECRET"],
         "X-User-ID": user_id
-    }, json={"lastUpdatedAt":lastUpdated, "disabled": disabled}, verify=False)
+    }, json={"lastUpdatedAt":lastUpdated, "disabled": disabled}, verify=False, timeout=25)
 
     try:
         webhook_result.raise_for_status()

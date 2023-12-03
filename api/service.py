@@ -1013,7 +1013,7 @@ def stop_wrongfully_disabled_users_worker():
 def start_wrongfully_disabled_users_worker():
     w =  _register_wrongfully_disabled_users_worker()
     if w > current_app.config["WRONGFULLY_DISABLED_USERS_WORKERS"]:
-        logging.debug(f"Worker {os.getpid()} skipping WRONGFULLY_DISABLED_USERS due to count is {w} {current_app.config['WRONGFULLY_DISABLED_USERS_WORKERS']}")
+        logging.info(f"Worker {os.getpid()} skipping WRONGFULLY_DISABLED_USERS due to count is {w} {current_app.config['WRONGFULLY_DISABLED_USERS_WORKERS']}")
         return
 
     wrongfully_disabled_users_executor = Executor(current_app, "wrongfully_disabled_users_processor")
