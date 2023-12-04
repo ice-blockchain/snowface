@@ -16,7 +16,7 @@ from flask_httpauth import HTTPBasicAuth
 from faces import ping as milvus_ping
 from users import ping as redis_ping
 from minio_uploader import ping as minio_ping
-import review
+from client_ip import client_ip
 
 
 
@@ -183,7 +183,8 @@ def _log_error(current_user: Token, e: Exception, unexpected = False):
 
 @blueprint.route("/v1w/face-auth/primary_photo/<user_id>", methods=["POST"])
 @auth_required
-def primary_photo(current_user, user_id):
+@client_ip
+def primary_photo(current_user,client_ip, user_id):
     with REQUEST_TIME.labels(path="/v1w/face-auth/primary_photo").time():
         if _allowed_file_format(request.files["image"].filename) is False:
             return {"message": "wrong image format", 'code': _invalid_properties}, 400
@@ -192,7 +193,7 @@ def primary_photo(current_user, user_id):
             if _primary_photo_rate_limiter_rate is not None and not _primary_photo_rate_limiter.test(_primary_photo_rate_limiter_rate, user_id): # global, should it be per user_id?
                 return {"message": f"rate limit for errors {_primary_photo_rate_limiter_rate} exceeded", "code":_rate_limit_exceeded}, 429
 
-            service.set_primary_photo(current_user, user_id, request.files["image"])
+            service.set_primary_photo(current_user, client_ip, user_id, request.files["image"])
 
             return ""
         except exceptions.NoFaces as e:

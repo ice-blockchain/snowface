@@ -212,7 +212,7 @@ def set_primary_photo_internal(now: int,user_id: str, photo_stream, attempt):
         similar_users.pop()
     return md, sface_md, similar_users
 
-def set_primary_photo(current_user, user_id: str, photo_stream):
+def set_primary_photo(current_user, client_ip, user_id: str, photo_stream):
     now = time.time_ns()
     user = _get_user(user_id, search_growing=False)
     if user is not None and user["disabled_at"] > 0:
@@ -238,7 +238,7 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
 
         if user is not None and attempt <= 1:
             #primary_photo.primary_photo_declined(e, now, current_user, user_id, photo_stream.stream)
-            review.primary_photo_to_review(now, current_user, user_id, user, photo_stream, e.similar_users, "TODO IP Here", e)
+            review.primary_photo_to_review(now, current_user, user_id, user, photo_stream, e.similar_users, client_ip, e)
             return
         raise e
 
