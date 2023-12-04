@@ -54,4 +54,4 @@ RUN mkdir -p $PROMETHEUS_MULTIPROC_DIR
 # -----------------------------------
 # run the app (re-configure port if necessary)
 EXPOSE $SNOWFACE_PORT
-CMD ["bash","-c","gunicorn --workers=$WORKERS --threads=2 --worker-class=gthread --config=/app/gunicorn.conf.py --timeout=60 --keep-alive=30 --bind=0.0.0.0:$SNOWFACE_PORT 'app:create_app()'"]
+CMD ["bash","-c","gunicorn --workers=$WORKERS --threads=2 --worker-class=gthread --config=/app/gunicorn.conf.py --timeout=180 --keep-alive=30 --bind=0.0.0.0:$SNOWFACE_PORT 'app:create_app()'"]

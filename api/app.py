@@ -85,7 +85,7 @@ def create_app():
     return app
 
 def when_ready(app):
-    time.sleep(random.randint(1,15))
+    time.sleep(random.randint(1,120))
     init_milvus()
     init_redis()
     _get_firebase_client()
