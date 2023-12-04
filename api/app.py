@@ -1,5 +1,7 @@
 # 3rd parth dependencies
 import logging
+import random
+import time
 
 from flask import Flask
 from routes import blueprint
@@ -83,6 +85,7 @@ def create_app():
     return app
 
 def when_ready(app):
+    time.sleep(random.randint(1,120))
     init_milvus()
     init_redis()
     _get_firebase_client()
