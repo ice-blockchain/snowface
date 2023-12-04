@@ -222,6 +222,12 @@ def mark_user_for_manual_review(user_id: str, ip: str, similar_users: List[str],
     }) > 0:
         return r.sadd("users_pending_duplicate_review", user_id) > 0
     return False
+def rollback_manual_review(user_id: str):
+    r = _get_client()
+    print("rollback")
+    if r.hdel(_userKey(user_id), "possible_duplicate_with") > 0:
+        return r.srem("users_pending_duplicate_review", user_id) > 0
+    return False
 
 def allocate_review_user(admin_id: str):
     r = _get_client()

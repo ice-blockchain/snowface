@@ -237,8 +237,8 @@ def set_primary_photo(current_user, client_ip, user_id: str, photo_stream):
         _decrease_available_retries(user, user_id)
 
         if user is not None and attempt <= 1:
-            #primary_photo.primary_photo_declined(e, now, current_user, user_id, photo_stream.stream)
-            review.primary_photo_to_review(now, current_user, user_id, user, photo_stream, e.similar_users, client_ip, e)
+            #primary_photo.primary_photo_declined(e, now, current_user, current_user.user_id, photo_stream.stream)
+            user = review.primary_photo_to_review(now, current_user, user_id, user, photo_stream, e.similar_users, client_ip, e)
             return
         raise e
 

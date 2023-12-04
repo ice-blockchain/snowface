@@ -5,7 +5,8 @@ from users import (
     full_user_reset                           as _full_user_reset,
     remove_expired                            as _remove_expired,
     set_expired                               as _set_expired,
-    update_user                               as _update_user
+    update_user                               as _update_user,
+    rollback_manual_review                    as _rollback_manual_review
 
 )
 from faces import (
@@ -45,11 +46,13 @@ def primary_photo_passed(now, current_user, user_id, user, photo_stream, md_sfac
             )
         except UnauthorizedFromWebhook as e:
             _delete_metadatas(user_id, [upd["user_picture_id"]])
-
+            if user.get("possible_duplicate_with",[]):
+                _rollback_manual_review(user_id)
             raise e
         except Exception as e:
             _delete_metadatas(user_id, [upd["user_picture_id"]])
-
+            if user.get("possible_duplicate_with",[]):
+                _rollback_manual_review(user_id)
             raise e # goes to 5xx
 
 def primary_photo_declined(e, now, current_user, user_id, photo_stream):
@@ -61,7 +64,8 @@ def primary_photo_declined(e, now, current_user, user_id, photo_stream):
                 current_user=current_user,
                 primary_md=None,
                 secondary_md=None,
-                user={"disabled_at": now}
+                user={"disabled_at": now},
+                user_id=user_id
             )
         except UnauthorizedFromWebhook as ex:
             _rollback_disabled_user(user_id)

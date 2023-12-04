@@ -6,7 +6,8 @@ from users import (
     user_reviewed as _user_reviewed,
     rollback_reviewed as _rollback_reviewed,
     get_user as _get_user,
-    allocate_review_user as _allocate_review_user
+    allocate_review_user as _allocate_review_user,
+    rollback_manual_review as _rollback_manual_review
 )
 from minio_uploader import (
     put_review_photo as _put_review_photo,
@@ -36,18 +37,35 @@ def primary_photo_to_review(now, current_user, user_id, user, photo_stream, simi
     logging.info(f"Face {user_id}  is matching with user {similar_users[0]}, user is forwarded to manual review: distance {e.sface_distance} < {current_app.config['PRIMARY_PHOTO_SFACE_DISTANCE']}, {e.arface_distance} < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
     _mark_user_for_manual_review(user_id,ip,similar_users,user.get("duplicate_review_count",0))
     _put_review_photo(user_id,photo_stream)
-    # we have noting to rollback, so exception straight to 5xx to retry from FE
-    callback(
-        current_user=current_user,
-        primary_md={"uploaded_at": now},
-        secondary_md=None,
-        user=user,
-        potentially_duplicate=True
-    )
+    try:
+        callback(
+            current_user=current_user,
+            primary_md={"uploaded_at": now},
+            secondary_md=None,
+            user=user,
+            potentially_duplicate=True
+        )
+    except UnauthorizedFromWebhook as e:
+        _rollback_manual_review(user_id)
+        raise e
+    except Exception as e:
+        _rollback_manual_review(user_id)
+        raise e
+    upd = dict(user)
+    upd['possible_duplicate_with'] = similar_users
+    upd['ip'] = ip
+    return upd
 
 def make_decision(now: int, admin_current_user: Token, user_id:str, decision: str):
     user = _get_user(user_id)
+    if not user:
+        raise exceptions.UserNotFound("user have no state")
+    if not user.get("possible_duplicate_with",[]):
+        raise exceptions.NoDataException("user is not on review")
     photo = _get_review_photo(user_id)
+    if not photo:
+        raise exceptions.UserNotFound("user have no photo sent to review")
+    logging.warning(f"admin decision - user_id {user_id} = {decision} processing by admin {admin_current_user.user_id}")
     if decision == "duplicate":
         _user_reviewed(admin_id=admin_current_user.user_id,user_id=user_id,retry=False)
         try:
@@ -72,6 +90,7 @@ def make_decision(now: int, admin_current_user: Token, user_id:str, decision: st
             raise e
     else:
         raise Exception(f"invalid decision:{decision}")
+    logging.warning(f"admin decision - user_id {user_id} = {decision} processing by admin {admin_current_user.user_id}")
 
 
 def next_user_for_review(admin_id):

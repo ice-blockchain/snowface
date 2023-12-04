@@ -33,6 +33,7 @@ _user_not_the_same = service._user_not_the_same
 _user_disabled = "USER_DISABLED"
 _already_uploaded = "ALREADY_UPLOADED"
 _no_pending_users = "NO_PENDING_USERS"
+_not_in_review = "USER_IS_NOT_ON_REVIEW"
 _allowed_extensions = {'jpg', 'jpeg'}
 
 _primary_photo_rate_limiter = MovingWindowRateLimiter(storage=MemoryStorage())
@@ -395,6 +396,17 @@ def review_duplicates(current_user: Token):
         next_user_for_review = service.review_duplicates(current_user, user_id, decision)
     except UnauthorizedFromWebhook as e:
         return str(e), 401
+    except exceptions.NoDataException as e:
+        _log_error(current_user, e)
+        return {"message": f"user {user_id} is not on manual review, you cannot make decision", 'code': _not_in_review}, 400
+    except exceptions.UserNotFound as e:
+        _log_error(current_user, e)
+        return {"message": f"user {user_id} not found", 'code': _not_in_review}, 404
+    except exceptions.NoFaces as e:
+        return {"message": f"user {user_id} have corrupted picture, cannot detect face on it", 'code': _no_faces}, 409
+    except Exception as e:
+        _log_error(current_user, e, True)
+        return {"message": str(e)}, 500
     if next_user_for_review:
         return {
             "userId": next_user_for_review.user_id,
