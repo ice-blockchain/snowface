@@ -85,7 +85,8 @@ def create_app():
     return app
 
 def when_ready(app):
-    time.sleep(random.randint(1,120))
+    if app.config["MINIO_URI"]:
+        time.sleep(random.randint(1,int(os.environ.get("DISTRIBUTE_WORKERS_TIME",120))))
     init_milvus()
     init_redis()
     _get_firebase_client()

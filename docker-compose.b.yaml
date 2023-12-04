@@ -102,6 +102,7 @@ services:
       PRIMARY_PHOTO_ERROR_LIMIT: 10/minute # if empty/not set = no limit
       MAX_UPLOAD_CONTENT_LENGTH: 16000000 #16M
       METRICS_PASSWORD: metrics-password
+      DISTRIBUTE_WORKERS_TIME: 10
     depends_on:
       - "milvus-standalone"
       - "minio"
