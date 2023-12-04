@@ -32,7 +32,7 @@ _disabled_user_similarity_sface = Histogram("disabled_user_similarity_sface", "E
 _disabled_user_similarity_arcface = Histogram("disabled_user_similarity_arcface", "Euclidian (L2) distances of faces between most similar user and disabled one (for fallback model: arcface)", buckets=(0.1,0.2,0.3,0.4,0.5,0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95,1.0,1.05,1.1,1.15))
 _primary_photo_passed = Counter("primary_photo_passed","Counter of successfully passed primary photo uploads (not disabled)")
 _primary_photo_passed_retries = Histogram("primary_photo_passed_retries", "Histogram with retries count to pass selfie step", buckets=[i for i in range(20)])
-
+_photos_to_review = Counter("primary_photo_to_review","Counter of users for admin review")
 
 def register_emotion_success(model: HSEmotionRecognizer, emotion: str, scores_by_frame: list, averages: dict):
     _emotions_success.labels(expected_emotion=emotion).inc()
@@ -77,3 +77,6 @@ def register_disabled_user(sface_distance, arcface_distance):
 def register_primary_photo_uploaded(attempt):
     _primary_photo_passed.inc()
     _primary_photo_passed_retries.observe(attempt)
+
+def primary_photo_to_review():
+    _photos_to_review.inc()

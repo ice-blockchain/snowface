@@ -261,6 +261,9 @@ def rollback_reviewed(admin_id: str, user_id: str, user: dict, retry = False,):
         p.hset(_userKey(user_id),"possible_duplicate_with", ",".join(user.get("possible_duplicate_with",[])))
         p.set(f"user_pending_duplicate_review_{admin_id}", user_id)
 
+def is_review_disabled():
+    r = _get_client()
+    return r.get("disable_duplicate_review") is not None
 
 def ping():
     r = _get_client()

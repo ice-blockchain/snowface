@@ -34,7 +34,8 @@ from users import (
     get_admin_token                           as _get_admin_token,
     unregister_wrongfully_disabled_users_worker   as _unregister_wrongfully_disabled_users_worker,
     register_wrongfully_disabled_users_worker   as _register_wrongfully_disabled_users_worker,
-    mark_user_for_manual_review                as _mark_user_for_manual_review
+    mark_user_for_manual_review                as _mark_user_for_manual_review,
+    is_review_disabled                         as _is_review_disabled
 )
 import review, primary_photo
 
@@ -237,8 +238,10 @@ def set_primary_photo(current_user, client_ip, user_id: str, photo_stream):
         _decrease_available_retries(user, user_id)
 
         if user is not None and attempt <= 1:
-            #primary_photo.primary_photo_declined(e, now, current_user, current_user.user_id, photo_stream.stream)
-            user = review.primary_photo_to_review(now, current_user, user_id, user, photo_stream, e.similar_users, client_ip, e)
+            if _is_review_disabled():
+                primary_photo.primary_photo_declined(e, now, current_user, current_user.user_id, photo_stream.stream)
+            else:
+                user = review.primary_photo_to_review(now, current_user, user_id, user, photo_stream, e.similar_users, client_ip, e)
             return
         raise e
 

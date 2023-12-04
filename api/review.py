@@ -19,6 +19,7 @@ from webhook import callback, UnauthorizedFromWebhook
 import primary_photo
 from auth import Token
 import exceptions
+import metrics
 
 class UserForReview:
     def __init__(self, user, primary_photo, possible_duplicates):
@@ -37,6 +38,7 @@ def primary_photo_to_review(now, current_user, user_id, user, photo_stream, simi
     logging.info(f"Face {user_id}  is matching with user {similar_users[0]}, user is forwarded to manual review: distance {e.sface_distance} < {current_app.config['PRIMARY_PHOTO_SFACE_DISTANCE']}, {e.arface_distance} < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
     _mark_user_for_manual_review(user_id,ip,similar_users,user.get("duplicate_review_count",0))
     _put_review_photo(user_id,photo_stream)
+    metrics.primary_photo_to_review()
     try:
         callback(
             current_user=current_user,
