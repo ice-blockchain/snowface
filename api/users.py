@@ -164,10 +164,15 @@ def remove_session(user_id: str):
 
     return r.hdel(_userKey(user_id), "session_id")
 
-def full_user_reset(user_id: str):
+def full_user_reset(user_id: str, prev_state = None):
     r = _get_client()
 
-    return r.delete(_userKey(user_id))
+    res = r.delete(_userKey(user_id))
+    if prev_state:
+        r.hset(_userKey(user_id),mapping = {
+            "user_id": user_id,
+            "duplicate_review_count": prev_state.get("duplicate_review_count",0)
+        })
 
 def enable_user(user_id: str):
     r = _get_client()
@@ -233,7 +238,7 @@ def user_reviewed(admin_id: str, user_id: str, retry = False):
     r = _get_client()
     with r.pipeline(transaction=True) as p:
         if retry:
-            p.hincr(_userKey(user_id),"duplicate_review_count")
+            p.hincrby(_userKey(user_id),"duplicate_review_count")
         else:
             p.hdel(_userKey(user_id),"duplicate_review_count")
         p.hdel(_userKey(user_id),"possible_duplicate_with")

@@ -106,7 +106,7 @@ def extract_metadatas(user_id, photo_stream):
     return img_to_represent, md, sface_md
 
 
-def delete_user_photos_and_metadata(current_user, to_delete_user_id = "", force_user_id = ""):
+def delete_user_photos_and_metadata(current_user, to_delete_user_id = "", force_user_id = "", keep_retries = False):
     if to_delete_user_id != "":
         user_id = to_delete_user_id
     elif force_user_id != "":
@@ -123,7 +123,7 @@ def delete_user_photos_and_metadata(current_user, to_delete_user_id = "", force_
     main_md, secondary_md, deleted_mds = _delete_metadatas(user_id, [f"{user_id}~0", f"{user_id}~1"])
 
     if force_user_id == "":
-        _full_user_reset(user_id)
+        _full_user_reset(user_id, prev_state=prev_state if keep_retries else None)
         if prev_state is not None:
             _remove_expired(prev_state['session_started_at'], user_id)
 

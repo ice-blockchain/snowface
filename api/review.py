@@ -60,7 +60,7 @@ def make_decision(now: int, admin_current_user: Token, user_id:str, decision: st
             raise e
     elif decision == "retry":
         _user_reviewed(admin_id=admin_current_user.user_id,user_id=user_id,retry=True)
-        primary_photo.delete_user_photos_and_metadata(current_user=admin_current_user,to_delete_user_id=user_id)
+        primary_photo.delete_user_photos_and_metadata(current_user=admin_current_user,to_delete_user_id=user_id, keep_retries=True)
     elif decision == "not_duplicate":
         _user_reviewed(admin_id=admin_current_user.user_id,user_id=user_id,retry=False)
         try:
