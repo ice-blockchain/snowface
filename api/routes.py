@@ -32,6 +32,7 @@ _no_primary_metadata = "NO_PRIMARY_METADATA"
 _user_not_the_same = service._user_not_the_same
 _user_disabled = "USER_DISABLED"
 _already_uploaded = "ALREADY_UPLOADED"
+_no_pending_users = "NO_PENDING_USERS"
 _allowed_extensions = {'jpg', 'jpeg'}
 
 _primary_photo_rate_limiter = MovingWindowRateLimiter(storage=MemoryStorage())
@@ -387,15 +388,21 @@ def review_duplicates(current_user: Token):
     decision = request.args.get("decision")
     if decision and decision not in ("duplicate","not_duplicate", "retry"):
         return {"message":f"invalid decision: '{decision}'"},422
-
-    next_user_for_review = service.review_duplicates(user_id, decision)
-    return {
-        "userId": next_user_for_review.user_id,
-        "selfie": base64.b64encode(next_user_for_review.primary_photo),
-        "retries" : next_user_for_review.retries,
-        "ip" : next_user_for_review.ip,
-        "duplicateUsers": [{"userId": dupl.user_id, "selfie": dupl.primary_photo} for dupl in next_user_for_review.possible_duplicates]
-    }, 200
+    if (decision and not user_id) or (user_id and not decision):
+        return {"message":f"to make a decision you must provide both userId and decision"},422
+    try:
+        next_user_for_review = service.review_duplicates(current_user, user_id, decision)
+    except UnauthorizedFromWebhook as e:
+        return str(e), 401
+    if next_user_for_review:
+        return {
+            "userId": next_user_for_review.user_id,
+            "selfie": str(base64.b64encode(next_user_for_review.primary_photo),encoding = "utf-8"),
+            "retries" : next_user_for_review.retries,
+            "ip" : next_user_for_review.ip,
+            "duplicateUsers": [{"userId": dupl.user_id, "selfie": str(base64.b64encode(dupl.primary_photo),encoding = "utf-8")} for dupl in next_user_for_review.possible_duplicates]
+        }, 200
+    return {"message":"No pending users for review", "code":_no_pending_users},204
 
 metricsauth = HTTPBasicAuth()
 @metricsauth.verify_password

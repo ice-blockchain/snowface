@@ -92,6 +92,14 @@ def _upload(bucket, obj_name: str, photo_content):
     )
     return "/" + _bucket_name + "/" + obj_name
 
+def _delete(bucket, obj_name: str):
+    client = _client_with_initialized_bucket()
+    errs = client.remove_objects(bucket,[DeleteObject(i.object_name)])
+    return list(errs)
+
+def delete_review_photo(user_id: str):
+    return _delete(_review_photo_bucket_name, user_id)
+
 def get_photo(user_id: str, photo_id: int):
     return _download(_bucket_name, f"{user_id}/{photo_id}")
 

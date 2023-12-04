@@ -106,6 +106,7 @@ def get_user(user_id: str, search_growing = True):
               "best_pictures_score",
               "available_retries",
               "possible_duplicate_with",
+              "duplicate_review_count",
               "ip"
             ]
     mappers = {
@@ -117,6 +118,7 @@ def get_user(user_id: str, search_growing = True):
         "emotion_sequence": lambda x: int(x) if x else 0,
         "best_pictures_score": lambda x: x,
         "available_retries": int,
+        "duplicate_review_count": lambda x: int(x) if x else 0,
         "possible_duplicate_with": lambda x: str(x, encoding = "utf-8").split(",") if x else [],
         "ip":lambda x: str(x, encoding = "utf-8") if x else ""
     }
@@ -218,15 +220,15 @@ def mark_user_for_manual_review(user_id: str, ip: str, similar_users: List[str],
 
 def allocate_review_user(admin_id: str):
     r = _get_client()
-    with r.pipeline(transaction=True) as p:
-        user_id = p.get(f"user_pending_duplicate_review_{admin_id}")
-        if user_id and len(user_id):
-            p.discard()
-            return str(user_id,encoding = "utf-8")
-        user_id = str(p.spop("users_pending_duplicate_review"), encoding = "utf-8")
-        p.set(f"user_pending_duplicate_review_{admin_id}", user_id)
-        p.execute()
+    user_id = r.get(f"user_pending_duplicate_review_{admin_id}")
+    if user_id and len(user_id):
+        return str(user_id,encoding = "utf-8")
+    user_id = r.spop("users_pending_duplicate_review")
+    if user_id:
+        user_id = str(user_id, encoding = "utf-8")
+        r.set(f"user_pending_duplicate_review_{admin_id}", user_id)
         return user_id
+    return None
 def user_reviewed(admin_id: str, user_id: str, retry = False):
     r = _get_client()
     with r.pipeline(transaction=True) as p:
@@ -236,6 +238,17 @@ def user_reviewed(admin_id: str, user_id: str, retry = False):
             p.hdel(_userKey(user_id),"duplicate_review_count")
         p.hdel(_userKey(user_id),"possible_duplicate_with")
         p.delete(f"user_pending_duplicate_review_{admin_id}")
+        p.execute()
+
+def rollback_reviewed(admin_id: str, user_id: str, user: dict, retry = False,):
+    r = _get_client()
+    with r.pipeline(transaction=True) as p:
+        if retry:
+            p.hincr(_userKey(user_id),"duplicate_review_count", -1)
+        else:
+            p.hset(_userKey(user_id),"duplicate_review_count",user.get("duplicate_review_count", 0))
+        p.hset(_userKey(user_id),"possible_duplicate_with", ",".join(user.get("possible_duplicate_with",[])))
+        p.set(f"user_pending_duplicate_review_{admin_id}", user_id)
 
 
 def ping():

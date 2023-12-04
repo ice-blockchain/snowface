@@ -29,6 +29,12 @@ class FailedTryToDisable(Exception):
         self.matching_user_id = matching_user_id
         self.arcface_metadata = arcface_meta
         self.similar_users = similar_users
+class DisableByAdmin(Exception):
+    def __init__(self, message, sface_distance, arface_distance, matching_user_id):
+        super().__init__(message)
+        self.sface_distance = sface_distance
+        self.arface_distance = arface_distance
+        self.matching_user_id = matching_user_id
 
 class UpsertException(Exception):
     def __init__(self, message):

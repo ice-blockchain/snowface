@@ -22,17 +22,12 @@ from faces import (
 
 from users import (
     update_user                               as _update_user,
-    disable_user                              as db_disable_user,
-    rollback_disabled_user                    as _rollback_disabled_user,
     get_user                                  as _get_user,
     update_emotions_and_best_score            as _update_emotions_and_best_score,
     remove_session                            as _remove_session,
     update_last_negative_request_at           as _update_last_negative_request_at,
     get_expired_sessions                      as _get_expired_sessions,
     decrease_available_retries                as _decrease_available_retries,
-    full_user_reset                           as _full_user_reset,
-    remove_expired                            as _remove_expired,
-    set_expired                               as _set_expired,
     enable_user                               as _enable_user,
     get_disabled_user_for_selfie_reprocessing as _get_disabled_user_for_selfie_reprocessing,
     put_disabled_user_for_selfie_reprocessing as _put_disabled_user_for_selfie_reprocessing,
@@ -65,8 +60,8 @@ from auth import Token
 from flask_executor import Executor
 
 _model = primary_photo._model
-_model_fallback = "ArcFace"#"Facenet" #"VGG-Face"
-_detector_high_quality = "yunet"
+_model_fallback = primary_photo._model_fallback #"Facenet" #"VGG-Face"
+_detector_high_quality = primary_photo._detector_high_quality
 _detector_low_quality = "yunet" # TODO: test with skip, if we gonna get proper photos from FE
 _similarity_metric = "euclidean_l2"
 _picture_extension = '.jpg'
@@ -148,31 +143,9 @@ def init_models():
         logging.error(e, exc_info=e)
 
 def set_primary_photo_internal(now: int,user_id: str, photo_stream, attempt):
-    try:
-        img_objs, resp_objs = DeepFace.extract_faces_custom(
-            img_path=loadImageFromStream(photo_stream),
-            detector_backend=_detector_high_quality,
-            align=True,
-            landmarks_verification=True)
-    except ValueError:
-        raise exceptions.NoFaces(f"No faces detected, userId: {user_id}")
-    img_to_represent = resp_objs[0]['face']
-    md = distance.l2_normalize(DeepFace.represent(
-            img_path=img_to_represent,
-            model_name=_model_fallback,
-            detector_backend="skip",
-            normalization="base",
-            target_size=(112, 112),
-        )[0]["embedding"])
+    img_to_represent, md, sface_md = primary_photo.extract_metadatas(user_id,photo_stream)
     threshold = current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']
     similar_users, distances = _find_similar_users(user_id, md, threshold)
-    sface_md = distance.l2_normalize(DeepFace.represent(
-        img_path=img_to_represent,
-        model_name=_model,
-        detector_backend="skip",
-        normalization="base",
-        target_size=(112, 112),
-    )[0]["embedding"])
     if similar_users[0] != user_id:
         similar_user_md = _get_primary_metadata(similar_users[0], model=_model_fallback, search_growing=False)["face_metadata"]
         # make sure it is not a false positive, let's check other picture as well
@@ -264,18 +237,13 @@ def set_primary_photo(current_user, user_id: str, photo_stream):
         _decrease_available_retries(user, user_id)
 
         if user is not None and attempt <= 1:
-            #primary_photo_declined(e,now,current_user,user_id, photo_stream)
-            review._primary_photo_to_review(now,current_user,user_id,user,photo_stream,e.similar_users,"TODO IP Here")
+            #primary_photo.primary_photo_declined(e, now, current_user, user_id, photo_stream.stream)
+            review.primary_photo_to_review(now, current_user, user_id, user, photo_stream, e.similar_users, "TODO IP Here", e)
             return
         raise e
 
-    primary_photo._primary_photo_passed(now, current_user,user_id,user,photo_stream, md_sface, md, attempt)
+    primary_photo.primary_photo_passed(now, current_user, user_id, user, photo_stream.stream, md_sface, md, attempt)
 
-
-def _disable_user(now, user_id, photo_content):
-    _put_disable_photo(user_id,photo_content)
-
-    return db_disable_user(now,user_id)
 
 def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_pics: list):
     now = time.time_ns()
@@ -782,80 +750,7 @@ def delete_temporary_user_data(user_id:str):
     _remove_user_images(user_id)
 
 def delete_user_photos_and_metadata(current_user, to_delete_user_id = "", force_user_id = ""):
-    if to_delete_user_id != "":
-        user_id = to_delete_user_id
-    elif force_user_id != "":
-        user_id = force_user_id
-    else:
-        user_id = current_user.user_id
-
-    prev_state = _get_user(user_id, search_growing=False)
-
-    main, secondary, errs = _delete_photos(user_id)
-    if len(errs) > 0:
-        raise Exception(str(errs))
-
-    main_md, secondary_md, deleted_mds = _delete_metadatas(user_id, [f"{user_id}~0", f"{user_id}~1"])
-
-    if force_user_id == "":
-        _full_user_reset(user_id)
-        if prev_state is not None:
-            _remove_expired(prev_state['session_started_at'], user_id)
-
-    if force_user_id != "":
-        callback_user_id = force_user_id
-    elif to_delete_user_id != "":
-        callback_user_id = user_id
-    else:
-        callback_user_id = ""
-
-    try:
-        callback(current_user, None, None, None, user_id = callback_user_id)
-    except UnauthorizedFromWebhook as e:
-        _rollback_deletion(prev_state, user_id, main, secondary, main_md, secondary_md)
-
-        raise e
-    except requests.HTTPError as e:
-        if (e is not None) and (e.response is not None) and e.response.status_code == 404:
-            raise exceptions.MetadataNotFound(f"face metadata for userId {user_id} was not deleted")
-        _rollback_deletion(prev_state, user_id, main, secondary, main_md, secondary_md)
-        raise e
-    except Exception as e:
-        _rollback_deletion(prev_state, user_id, main, secondary, main_md, secondary_md)
-
-        raise e # goes to 5xx
-    if (deleted_mds == 0 or (main_md is None and secondary_md is None)) and prev_state is None:
-        raise exceptions.MetadataNotFound(f"face metadata for userId {user_id} was not deleted")
-
-def _rollback_expired(user_id: str, prev_state):
-    if prev_state['session_started_at'] is not None:
-        _set_expired(prev_state['session_started_at'], user_id)
-
-def _rollback_user_state(user_id: str, prev_state):
-    _update_user(
-        user_id=user_id,
-        session_id=prev_state['session_id'],
-        emotions=prev_state['emotions'],
-        session_started_at=prev_state['session_started_at'],
-        last_negative_request_at=prev_state['last_negative_request_at'],
-        disabled_at=prev_state['disabled_at'],
-        emotion_sequence=prev_state['emotion_sequence'],
-        best_pictures_score=prev_state['best_pictures_score'],
-    )
-
-def _rollback_deletion(prev_state, user_id, main, secondary, main_md, secondary_md):
-    if main is not None:
-        put_primary_photo(user_id=user_id, photo_content=io.BytesIO(main))
-    if secondary is not None:
-        put_secondary_photo(user_id=user_id, photo_content=io.BytesIO(secondary))
-    if main_md:
-        _set_primary_metadata(main_md["uploaded_at"], user_id, main_md["face_metadata"], main_md["url"], model=_model_fallback)
-    if secondary_md:
-        _update_secondary_metadata(secondary_md["uploaded_at"], user_id, secondary_md["face_metadata"], secondary_md["url"], model=_model_fallback)
-
-    if prev_state is not None:
-        _rollback_user_state(user_id, prev_state)
-        _rollback_expired(user_id, prev_state)
+    primary_photo.delete_user_photos_and_metadata(current_user, to_delete_user_id, force_user_id)
 
 def proxy_delete(current_user, user_id = ""):
     similarity_server = current_app.config['SIMILARITY_SERVER']
@@ -898,9 +793,9 @@ def reenable_user(current_user, user_id: str, duplicated_face: str):
             pass
 
 def review_duplicates(current_user: Token, user_id:str, decision: str):
-    now - time.time_ns()
+    now = time.time_ns()
     if user_id and decision:
-        review.make_decision(now,current_user, decision)
+        review.make_decision(now,current_user,user_id, decision)
     return review.next_user_for_review(current_user.user_id)
 
 def _reprocess_wrongfully_disabled_users():
