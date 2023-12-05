@@ -1,3 +1,5 @@
+import base64
+
 from flask import Blueprint, request, current_app, Response
 import service, exceptions, webhook
 
@@ -14,6 +16,9 @@ from flask_httpauth import HTTPBasicAuth
 from faces import ping as milvus_ping
 from users import ping as redis_ping
 from minio_uploader import ping as minio_ping
+from client_ip import client_ip
+
+
 
 blueprint = Blueprint("routes", __name__)
 
@@ -27,6 +32,8 @@ _no_primary_metadata = "NO_PRIMARY_METADATA"
 _user_not_the_same = service._user_not_the_same
 _user_disabled = "USER_DISABLED"
 _already_uploaded = "ALREADY_UPLOADED"
+_no_pending_users = "NO_PENDING_USERS"
+_not_in_review = "USER_IS_NOT_ON_REVIEW"
 _allowed_extensions = {'jpg', 'jpeg'}
 
 _primary_photo_rate_limiter = MovingWindowRateLimiter(storage=MemoryStorage())
@@ -177,7 +184,8 @@ def _log_error(current_user: Token, e: Exception, unexpected = False):
 
 @blueprint.route("/v1w/face-auth/primary_photo/<user_id>", methods=["POST"])
 @auth_required
-def primary_photo(current_user, user_id):
+@client_ip
+def primary_photo(current_user,client_ip, user_id):
     with REQUEST_TIME.labels(path="/v1w/face-auth/primary_photo").time():
         if _allowed_file_format(request.files["image"].filename) is False:
             return {"message": "wrong image format", 'code': _invalid_properties}, 400
@@ -186,7 +194,7 @@ def primary_photo(current_user, user_id):
             if _primary_photo_rate_limiter_rate is not None and not _primary_photo_rate_limiter.test(_primary_photo_rate_limiter_rate, user_id): # global, should it be per user_id?
                 return {"message": f"rate limit for errors {_primary_photo_rate_limiter_rate} exceeded", "code":_rate_limit_exceeded}, 429
 
-            service.set_primary_photo(current_user, user_id, request.files["image"])
+            service.set_primary_photo(current_user, client_ip, user_id, request.files["image"])
 
             return ""
         except exceptions.NoFaces as e:
@@ -214,6 +222,8 @@ def primary_photo(current_user, user_id):
             return {"message": str(e), "code":_user_disabled}, 403
         except webhook.UnauthorizedFromWebhook as e:
             return str(e), 401
+        except exceptions.RateLimitException as e:
+            return {"message": f"user is on manual review", "code":_rate_limit_exceeded}, 429
         except Exception as e:
             _log_error(current_user, e, True)
 
@@ -370,6 +380,42 @@ def enable_user(current_user: Token):
         _log_error(current_user, e, True)
 
         return {"message": str(e)}, 500
+
+@blueprint.route("/v1w/face-auth/primary_photo/review_duplicates", methods = ["POST"])
+@auth_required
+def review_duplicates(current_user: Token):
+    if current_user.role != "admin":
+        return {'message': f'insufficient role: "{current_user.role}"'}, 403
+    user_id = request.args.get("userId")
+    decision = request.args.get("decision")
+    if decision and decision not in ("duplicate","not_duplicate", "retry"):
+        return {"message":f"invalid decision: '{decision}'"},422
+    if (decision and not user_id) or (user_id and not decision):
+        return {"message":f"to make a decision you must provide both userId and decision"},422
+    try:
+        next_user_for_review = service.review_duplicates(current_user, user_id, decision)
+    except UnauthorizedFromWebhook as e:
+        return str(e), 401
+    except exceptions.NoDataException as e:
+        _log_error(current_user, e)
+        return {"message": f"user {user_id} is not on manual review, you cannot make decision", 'code': _not_in_review}, 400
+    except exceptions.UserNotFound as e:
+        _log_error(current_user, e)
+        return {"message": f"user {user_id} not found", 'code': _not_in_review}, 404
+    except exceptions.NoFaces as e:
+        return {"message": f"user {user_id} have corrupted picture, cannot detect face on it", 'code': _no_faces}, 409
+    except Exception as e:
+        _log_error(current_user, e, True)
+        return {"message": str(e)}, 500
+    if next_user_for_review:
+        return {
+            "userId": next_user_for_review.user_id,
+            "selfie": str(base64.b64encode(next_user_for_review.primary_photo),encoding = "utf-8"),
+            "retries" : next_user_for_review.retries,
+            "ip" : next_user_for_review.ip,
+            "duplicateUsers": [{"userId": dupl.user_id, "selfie": str(base64.b64encode(dupl.primary_photo),encoding = "utf-8")} for dupl in next_user_for_review.possible_duplicates]
+        }, 200
+    return {"message":"No pending users for review", "code":_no_pending_users},204
 
 metricsauth = HTTPBasicAuth()
 @metricsauth.verify_password

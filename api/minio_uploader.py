@@ -12,7 +12,7 @@ _minio_client = None
 
 _bucket_name = "photos"
 _disabled_users_bucket_name = "disabled"
-
+_review_photo_bucket_name = "review"
 _picture_primary = 0
 _picture_secondary = 1
 
@@ -34,6 +34,11 @@ def _get_minio_client():
                     raise e
         if not _minio_client.bucket_exists(_disabled_users_bucket_name):
             try: _minio_client.make_bucket(_disabled_users_bucket_name)
+            except minio.error.S3Error as e:
+                if e.code != "BucketAlreadyOwnedByYou":
+                    raise e
+        if not _minio_client.bucket_exists(_review_photo_bucket_name):
+            try: _minio_client.make_bucket(_review_photo_bucket_name)
             except minio.error.S3Error as e:
                 if e.code != "BucketAlreadyOwnedByYou":
                     raise e
@@ -61,6 +66,14 @@ def get_disabled_photo(user_id: str):
     obj_name = f"{user_id}"
     return _download(_disabled_users_bucket_name,obj_name)
 
+def put_review_photo(user_id: str, photo_content):
+    obj_name = f"{user_id}"
+    return _upload(_review_photo_bucket_name,obj_name,photo_content)
+
+def get_review_photo(user_id: str):
+    obj_name = f"{user_id}"
+    return _download(_review_photo_bucket_name,obj_name)
+
 
 def put_proto(user_id: str, photo_id: int, photo_content):
     obj_name = f"{user_id}/{photo_id}"
@@ -78,6 +91,14 @@ def _upload(bucket, obj_name: str, photo_content):
         length=l,
     )
     return "/" + _bucket_name + "/" + obj_name
+
+def _delete(bucket, obj_name: str):
+    client = _client_with_initialized_bucket()
+    errs = client.remove_objects(bucket,[DeleteObject(i.object_name)])
+    return list(errs)
+
+def delete_review_photo(user_id: str):
+    return _delete(_review_photo_bucket_name, user_id)
 
 def get_photo(user_id: str, photo_id: int):
     return _download(_bucket_name, f"{user_id}/{photo_id}")

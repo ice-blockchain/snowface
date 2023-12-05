@@ -1,6 +1,6 @@
 import redis, os
 from flask import current_app
-
+from typing import List
 _client = None
 
 def _get_client():
@@ -104,7 +104,10 @@ def get_user(user_id: str, search_growing = True):
               "last_negative_request_at",
               "emotion_sequence",
               "best_pictures_score",
-              "available_retries"
+              "available_retries",
+              "possible_duplicate_with",
+              "duplicate_review_count",
+              "ip"
             ]
     mappers = {
         "session_id": lambda x: str(x, encoding = "utf-8") if x else "",
@@ -115,6 +118,9 @@ def get_user(user_id: str, search_growing = True):
         "emotion_sequence": lambda x: int(x) if x else 0,
         "best_pictures_score": lambda x: x,
         "available_retries": int,
+        "duplicate_review_count": lambda x: int(x) if x else 0,
+        "possible_duplicate_with": lambda x: str(x, encoding = "utf-8").split(",") if x else [],
+        "ip":lambda x: str(x, encoding = "utf-8") if x else ""
     }
     res = r.hmget(_userKey(user_id),hkeys)
     if res.count(None) == len(hkeys):
@@ -158,10 +164,15 @@ def remove_session(user_id: str):
 
     return r.hdel(_userKey(user_id), "session_id")
 
-def full_user_reset(user_id: str):
+def full_user_reset(user_id: str, prev_state = None):
     r = _get_client()
 
-    return r.delete(_userKey(user_id))
+    res = r.delete(_userKey(user_id))
+    if prev_state:
+        r.hset(_userKey(user_id),mapping = {
+            "user_id": user_id,
+            "duplicate_review_count": prev_state.get("duplicate_review_count",0)
+        })
 
 def enable_user(user_id: str):
     r = _get_client()
@@ -202,6 +213,58 @@ def unregister_wrongfully_disabled_users_worker():
 def clean_wrongfully_disabled_users_workers():
     r = _get_client()
     r.delete("wrongfully_disabled_users_workers",1)
+
+def mark_user_for_manual_review(user_id: str, ip: str, similar_users: List[str], duplicate_review_count: int):
+    r = _get_client()
+    if r.hset(_userKey(user_id),mapping = {
+        "ip":ip,
+        "possible_duplicate_with": ",".join(similar_users)
+    }) > 0:
+        return r.sadd("users_pending_duplicate_review", user_id) > 0
+    return False
+def rollback_manual_review(user_id: str):
+    r = _get_client()
+    print("rollback")
+    if r.hdel(_userKey(user_id), "possible_duplicate_with") > 0:
+        return r.srem("users_pending_duplicate_review", user_id) > 0
+    return False
+
+def allocate_review_user(admin_id: str):
+    r = _get_client()
+    user_id = r.get(f"user_pending_duplicate_review_{admin_id}")
+    if user_id and len(user_id):
+        return str(user_id,encoding = "utf-8")
+    user_id = r.spop("users_pending_duplicate_review")
+    if user_id:
+        user_id = str(user_id, encoding = "utf-8")
+        r.set(f"user_pending_duplicate_review_{admin_id}", user_id)
+        return user_id
+    return None
+def user_reviewed(admin_id: str, user_id: str, retry = False):
+    r = _get_client()
+    with r.pipeline(transaction=True) as p:
+        if retry:
+            p.hincrby(_userKey(user_id),"duplicate_review_count")
+        else:
+            p.hdel(_userKey(user_id),"duplicate_review_count")
+        p.hdel(_userKey(user_id),"possible_duplicate_with")
+        p.delete(f"user_pending_duplicate_review_{admin_id}")
+        p.execute()
+
+def rollback_reviewed(admin_id: str, user_id: str, user: dict, retry = False,):
+    r = _get_client()
+    with r.pipeline(transaction=True) as p:
+        if retry:
+            p.hincr(_userKey(user_id),"duplicate_review_count", -1)
+        else:
+            p.hset(_userKey(user_id),"duplicate_review_count",user.get("duplicate_review_count", 0))
+        p.hset(_userKey(user_id),"possible_duplicate_with", ",".join(user.get("possible_duplicate_with",[])))
+        p.set(f"user_pending_duplicate_review_{admin_id}", user_id)
+
+def is_review_disabled():
+    r = _get_client()
+    return r.get("disable_duplicate_review") is not None
+
 def ping():
     r = _get_client()
 
