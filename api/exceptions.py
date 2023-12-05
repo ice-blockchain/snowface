@@ -66,3 +66,7 @@ class NegativeRateLimitException(Exception):
 class WrongImageSizeException(Exception):
     def __init__(self, message):
         super().__init__(message)
+
+class UserForwardedToManualReview(Exception):
+    def __init__(self, message):
+        super().__init__(message)

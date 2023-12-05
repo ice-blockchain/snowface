@@ -168,11 +168,14 @@ def full_user_reset(user_id: str, prev_state = None):
     r = _get_client()
 
     res = r.delete(_userKey(user_id))
+    if res:
+        r.srem("users_pending_duplicate_review", user_id)
     if prev_state:
         r.hset(_userKey(user_id),mapping = {
             "user_id": user_id,
             "duplicate_review_count": prev_state.get("duplicate_review_count",0)
         })
+    return res
 
 def enable_user(user_id: str):
     r = _get_client()
