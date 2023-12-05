@@ -197,6 +197,10 @@ def primary_photo(current_user,client_ip, user_id):
             service.set_primary_photo(current_user, client_ip, user_id, request.files["image"])
 
             return ""
+        except exceptions.UserForwardedToManualReview as e:
+            _log_error(current_user, e)
+
+            return "", 202
         except exceptions.NoFaces as e:
             _log_error(current_user, e)
             if _primary_photo_rate_limiter_rate is not None:

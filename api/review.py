@@ -53,10 +53,7 @@ def primary_photo_to_review(now, current_user, user_id, user, photo_stream, simi
     except Exception as e:
         _rollback_manual_review(user_id)
         raise e
-    upd = dict(user)
-    upd['possible_duplicate_with'] = similar_users
-    upd['ip'] = ip
-    return upd
+    raise exceptions.UserForwardedToManualReview(f"user {user_id} forwarded to manual review: {str(e)}")
 
 def make_decision(now: int, admin_current_user: Token, user_id:str, decision: str):
     user = _get_user(user_id)
@@ -100,9 +97,13 @@ def next_user_for_review(admin_id):
     if user_id:
         user = _get_user(user_id)
         selfie = _get_review_photo(user_id)
-        return UserForReview(user,primary_photo=selfie, possible_duplicates = [fetch_duplicate(id) for id in user.get("possible_duplicate_with",[])] )
+        if not user:
+            user = {"user_id": user_id}
+        return UserForReview(user,primary_photo=selfie, possible_duplicates = [d for id in user.get("possible_duplicate_with",[]) if (d:= fetch_duplicate(id)) is not None] )
     return None
 
 def fetch_duplicate(user_id):
     photo = _get_primary_photo(user_id)
+    if photo is None:
+        return None
     return Duplicate(user_id, photo)

@@ -51,7 +51,7 @@ def primary_photo_passed(now, current_user, user_id, user, photo_stream, md_sfac
             raise e
         except Exception as e:
             _delete_metadatas(user_id, [upd["user_picture_id"]])
-            if user.get("possible_duplicate_with",[]):
+            if user and user.get("possible_duplicate_with",[]):
                 _rollback_manual_review(user_id)
             raise e # goes to 5xx
 
