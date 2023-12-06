@@ -31,7 +31,7 @@ import numpy as np, cv2
 _model = "SFace"
 _model_fallback = "ArcFace"#"Facenet" #"VGG-Face
 _detector_high_quality = "yunet"
-def primary_photo_passed(now, current_user, user_id, user, photo_stream, md_sface, md, attempt):
+def primary_photo_passed(now, current_user, user_id, user, photo_stream, md_sface, md, attempt, admin_perm_user_id = ""):
     url = put_primary_photo(user_id,photo_stream)
     upd, rows = _set_primary_metadata(now, user_id, md, url, model=_model_fallback)
     if rows > 0:
@@ -43,7 +43,7 @@ def primary_photo_passed(now, current_user, user_id, user, photo_stream, md_sfac
                 primary_md=upd,
                 secondary_md=None,
                 user=user,
-                user_id=user_id,
+                user_id=admin_perm_user_id,
             )
         except UnauthorizedFromWebhook as e:
             _delete_metadatas(user_id, [upd["user_picture_id"]])
@@ -56,7 +56,7 @@ def primary_photo_passed(now, current_user, user_id, user, photo_stream, md_sfac
                 _rollback_manual_review(user_id)
             raise e # goes to 5xx
 
-def primary_photo_declined(e, now, current_user, user_id, photo_stream):
+def primary_photo_declined(e, now, current_user, user_id, photo_stream, admin_perm_user_id = ""):
     disabled = _disable_user(now,user_id, photo_stream)
     if disabled:
         metrics.register_disabled_user(e.sface_distance, e.arface_distance)
@@ -66,7 +66,7 @@ def primary_photo_declined(e, now, current_user, user_id, photo_stream):
                 primary_md=None,
                 secondary_md=None,
                 user={"disabled_at": now},
-                user_id=user_id
+                user_id=admin_perm_user_id
             )
         except UnauthorizedFromWebhook as ex:
             _rollback_disabled_user(user_id)
