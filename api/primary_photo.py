@@ -80,7 +80,8 @@ def primary_photo_declined(e, now, current_user, user_id, photo_stream):
         raise exceptions.UserDisabled(f"Face {user_id}  is matching with user {e.matching_user_id}, attempt:{current_app.config['PRIMARY_PHOTO_RETRIES']}, distance {e.sface_distance} < {current_app.config['PRIMARY_PHOTO_SFACE_DISTANCE']}, {e.arface_distance} < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
 
 def _disable_user(now, user_id, photo_content):
-    _put_disable_photo(user_id,photo_content)
+    if photo_content:
+        _put_disable_photo(user_id,photo_content)
 
     return db_disable_user(now,user_id)
 

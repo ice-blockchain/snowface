@@ -392,17 +392,18 @@ def review_duplicates(current_user: Token):
         return {'message': f'insufficient role: "{current_user.role}"'}, 403
     user_id = request.args.get("userId")
     decision = request.args.get("decision")
+    most_similar_duplicate = request.args.get("mostSimilarDuplicate")
     if decision and decision not in ("duplicate","not_duplicate", "retry"):
         return {"message":f"invalid decision: '{decision}'"},422
     if (decision and not user_id) or (user_id and not decision):
         return {"message":f"to make a decision you must provide both userId and decision"},422
     try:
-        next_user_for_review = service.review_duplicates(current_user, user_id, decision)
+        next_user_for_review = service.review_duplicates(current_user, user_id, decision, most_similar_duplicate)
     except UnauthorizedFromWebhook as e:
         return str(e), 401
     except exceptions.NoDataException as e:
         _log_error(current_user, e)
-        return {"message": f"user {user_id} is not on manual review, you cannot make decision", 'code': _not_in_review}, 400
+        return {"message": str(e), 'code': _not_in_review}, 400
     except exceptions.UserNotFound as e:
         _log_error(current_user, e)
         return {"message": f"user {user_id} not found", 'code': _not_in_review}, 404
