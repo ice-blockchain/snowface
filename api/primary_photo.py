@@ -42,7 +42,8 @@ def primary_photo_passed(now, current_user, user_id, user, photo_stream, md_sfac
                 current_user=current_user,
                 primary_md=upd,
                 secondary_md=None,
-                user=user
+                user=user,
+                user_id=user_id,
             )
         except UnauthorizedFromWebhook as e:
             _delete_metadatas(user_id, [upd["user_picture_id"]])
