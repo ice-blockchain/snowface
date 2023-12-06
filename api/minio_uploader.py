@@ -94,7 +94,7 @@ def _upload(bucket, obj_name: str, photo_content):
 
 def _delete(bucket, obj_name: str):
     client = _client_with_initialized_bucket()
-    errs = client.remove_objects(bucket,[DeleteObject(i.object_name)])
+    errs = client.remove_objects(bucket,[DeleteObject(obj_name)])
     return list(errs)
 
 def delete_review_photo(user_id: str):
