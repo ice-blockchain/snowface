@@ -70,7 +70,7 @@ def make_decision(now: int, admin_current_user: Token, user_id:str, decision: st
                 try:
                     photo = _get_primary_photo(most_similar_user_to_duplicate)
                     try:
-                        primary_photo.primary_photo_declined(exceptions.DisableByAdmin("manually disabled by admin", -1, -1, [user_id]), now, admin_current_user, most_similar_user_to_duplicate, io.BytesIO(photo))
+                        primary_photo.primary_photo_declined(exceptions.DisableByAdmin("manually disabled by admin", -1, -1, [user_id]), now, admin_current_user, most_similar_user_to_duplicate, io.BytesIO(photo), admin_perm_user_id=user_id)
                     except exceptions.UserDisabled as e:
                         pass
                     return _pop_possible_duplicate_with(user_id,user,most_similar_user_to_duplicate)
@@ -88,7 +88,7 @@ def make_decision(now: int, admin_current_user: Token, user_id:str, decision: st
     if decision == "duplicate":
         _user_reviewed(admin_id=admin_current_user.user_id,user_id=user_id,retry=False)
         try:
-            primary_photo.primary_photo_declined(exceptions.DisableByAdmin("manually disabled by admin", -1, -1, user.get("possible_duplicate_with",[])), now, admin_current_user, user_id, io.BytesIO(photo))
+            primary_photo.primary_photo_declined(exceptions.DisableByAdmin("manually disabled by admin", -1, -1, user.get("possible_duplicate_with",[])), now, admin_current_user, user_id, io.BytesIO(photo), admin_perm_user_id=user_id)
             _delete_review_photo(user_id)
         except exceptions.UserDisabled as e:
             pass
@@ -102,7 +102,7 @@ def make_decision(now: int, admin_current_user: Token, user_id:str, decision: st
         _user_reviewed(admin_id=admin_current_user.user_id,user_id=user_id,retry=False)
         try:
             _, md, sface_md = primary_photo.extract_metadatas(user_id,io.BytesIO(photo))
-            primary_photo.primary_photo_passed(now, admin_current_user, user_id,user, io.BytesIO(photo), sface_md, md, -1)
+            primary_photo.primary_photo_passed(now, admin_current_user, user_id,user, io.BytesIO(photo), sface_md, md, -1, admin_perm_user_id=user_id)
             _delete_review_photo(user_id)
         except Exception as e:
             _rollback_reviewed(admin_id=admin_current_user.user_id,user_id=user_id,user=user,retry=False)
