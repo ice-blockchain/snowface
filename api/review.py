@@ -60,7 +60,7 @@ def make_decision(now: int, admin_current_user: Token, user_id:str, decision: st
     if not user:
         raise exceptions.UserNotFound("user have no state")
     if not user.get("possible_duplicate_with",[]):
-        raise exceptions.NoDataException("user is not on review")
+        raise exceptions.NoDataException(f"user {user_id} is not on review")
     photo = _get_review_photo(user_id)
     if not photo:
         raise exceptions.UserNotFound("user have no photo sent to review")

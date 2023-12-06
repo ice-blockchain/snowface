@@ -260,9 +260,10 @@ def rollback_reviewed(admin_id: str, user_id: str, user: dict, retry = False,):
         if retry:
             p.hincr(_userKey(user_id),"duplicate_review_count", -1)
         else:
-            p.hset(_userKey(user_id),"duplicate_review_count",user.get("duplicate_review_count", 0))
-        p.hset(_userKey(user_id),"possible_duplicate_with", ",".join(user.get("possible_duplicate_with",[])))
+            p.hset(_userKey(user_id),mapping = {"duplicate_review_count":user.get("duplicate_review_count", 0)})
+        p.hset(_userKey(user_id), mapping = {"possible_duplicate_with":",".join(user.get("possible_duplicate_with",[]))})
         p.set(f"user_pending_duplicate_review_{admin_id}", user_id)
+        p.execute()
 
 def is_review_disabled():
     r = _get_client()
