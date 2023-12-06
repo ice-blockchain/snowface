@@ -307,7 +307,7 @@ def recheck_similarity_using_sface(primary_md, user_id: str, pics: list, sface_m
     secondary_md = _get_secondary_metadata(user_id, model=_model)
     threshold = _similarity_threshold(_model_fallback)
     if not secondary_md:
-        return sface_metadatas[0], bestNotFittingIndex, 0, threshold, bestNotFittingIndex
+        return sface_metadatas[0], -1, -1, threshold, bestNotFittingIndex
 
     try:
         new_pic_md = distance.l2_normalize(DeepFace.represent(
