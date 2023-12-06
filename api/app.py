@@ -103,5 +103,5 @@ if __name__ == '__main__':
     from dotenv import load_dotenv
     load_dotenv("../.env")
     app = create_app()
-    app.debug = False
+    app.debug = True
     app.run(port=int(os.environ.get("SNOWFACE_PORT",5000)))

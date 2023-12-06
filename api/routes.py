@@ -157,7 +157,8 @@ def similar(current_user, user_id):
                 return {"message": "wrong image format", 'code': _invalid_properties}, 400
 
         try:
-            bestIndex, euclidian, updateTime = service.check_similarity_and_update_secondary_photo(current_user, user_id, request.files.getlist("image"))
+            emotion_session_id = request.args.get("sessionId")
+            bestIndex, euclidian, updateTime = service.check_similarity_and_update_secondary_photo(current_user, user_id, request.files.getlist("image"),emotion_session_id)
 
             return  {"userId":user_id, "bestIndex":bestIndex, "distance": euclidian, "secondaryPhotoUpdatedAt":updateTime}
         except exceptions.MetadataNotFound as e:

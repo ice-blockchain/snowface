@@ -15,6 +15,7 @@ _faces_collections = {}
 
 _picture_primary = 0
 _picture_secondary = 1
+_picture_secondary_pending = 2 # passed similarity but emotion session not finished yet
 
 _default_user = 'root'
 _default_password = 'Milvus'
@@ -205,6 +206,38 @@ def update_secondary_metadata(now: int, user_id:str, metadata: list, url: str, m
         "url": url,
         "uploaded_at": now
     }, rowsCount
+
+def update_secondary_metadata_pending(now: int, user_id:str, metadata: list, url: str, model: str):
+    faces = get_faces_collection(model)
+    pk = f"{user_id}~{_picture_secondary_pending}"
+    rowsCount = faces.upsert([[pk],[user_id],[np.int32(_picture_secondary_pending)],[metadata],[url],[now]]).upsert_count
+    return {
+        "user_picture_id": pk,
+        "user_id": user_id,
+        "picture_id": np.int32(_picture_secondary_pending),
+        "face_metadata": metadata,
+        "url": url,
+        "uploaded_at": now
+    }, rowsCount
+def apply_secondary_pending(user_id:str, model:str, emotion_session_id: str):
+    md =     faces = get_faces_collection(model)
+    res = faces.query(
+        expr = f"user_picture_id == \"{user_id}~{_picture_secondary_pending}\"",
+        offset = 0,
+        limit = 1,
+        output_fields = ["user_id","picture_id","face_metadata","uploaded_at", "url"],
+        ignore_growing = False,
+        consistency_level = "Strong"
+    )
+    if len(res) == 0:
+        print("empty")
+        return None
+    res = res[0]
+    if not (f"emotionSessionId={emotion_session_id}" in str(res["url"])):
+        return None
+    secondary = update_secondary_metadata(res['uploaded_at'], user_id,res['face_metadata'],res['url'],model = model)
+    print(_faces_collections[_models[1]].delete(f"user_picture_id in {[res['user_picture_id']]}").delete_count)
+    return secondary
 
 def set_primary_metadata(now: int, user_id:str, metadata: list, url: str, model: str):
     faces = get_faces_collection(model)
