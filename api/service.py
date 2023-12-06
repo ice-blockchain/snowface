@@ -795,11 +795,12 @@ def reenable_user(current_user, user_id: str, duplicated_face: str):
         except exceptions.MetadataNotFound as e:
             pass
 
-def review_duplicates(current_user: Token, user_id:str, decision: str):
+def review_duplicates(current_user: Token, user_id:str, decision: str, most_similar_duplicate: str = None):
     now = time.time_ns()
     if user_id and decision:
-        review.make_decision(now,current_user,user_id, decision)
+        review.make_decision(now,current_user,user_id, decision, most_similar_duplicate)
     return review.next_user_for_review(current_user.user_id)
+
 
 def _reprocess_wrongfully_disabled_users():
     global __admin_token, __stop_wrongfully_disabled_users_worker

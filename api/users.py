@@ -253,7 +253,26 @@ def user_reviewed(admin_id: str, user_id: str, retry = False):
         p.hdel(_userKey(user_id),"possible_duplicate_with")
         p.delete(f"user_pending_duplicate_review_{admin_id}")
         p.execute()
-
+def pop_possible_duplicate_with(user_id, user, most_similar_user_id):
+    r = _get_client()
+    dupls = user.get("possible_duplicate_with", [])
+    if most_similar_user_id in dupls:
+        dupls.remove(most_similar_user_id)
+    else:
+        return user
+    user["possible_duplicate_with"] = dupls
+    r.hset(_userKey(user_id), mapping = {"possible_duplicate_with":",".join(dupls)})
+    return user
+def rollback_pop_possible_duplicate_with(user_id, user, most_similar_user_id):
+    r = _get_client()
+    dupls = user.get("possible_duplicate_with", [])
+    if not most_similar_user_id in dupls:
+        dupls.append(most_similar_user_id)
+    else:
+        return user
+    user["possible_duplicate_with"] = dupls
+    r.hset(_userKey(user_id), mapping = {"possible_duplicate_with":",".join(dupls)})
+    return user
 def rollback_reviewed(admin_id: str, user_id: str, user: dict, retry = False,):
     r = _get_client()
     with r.pipeline(transaction=True) as p:
