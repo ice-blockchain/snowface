@@ -70,7 +70,7 @@ def make_decision(now: int, admin_current_user: Token, user_id:str, decision: st
                 try:
                     photo = _get_primary_photo(most_similar_user_to_duplicate)
                     try:
-                        primary_photo.primary_photo_declined(exceptions.DisableByAdmin("manually disabled by admin", -1, -1, [user_id]), now, admin_current_user, most_similar_user_to_duplicate, io.BytesIO(photo), admin_perm_user_id=user_id)
+                        primary_photo.primary_photo_declined(exceptions.DisableByAdmin("manually disabled by admin", -1, -1, [user_id]), now, admin_current_user, most_similar_user_to_duplicate, io.BytesIO(photo), admin_perm_user_id=most_similar_user_to_duplicate)
                     except exceptions.UserDisabled as e:
                         pass
                     return _pop_possible_duplicate_with(user_id,user,most_similar_user_to_duplicate)
