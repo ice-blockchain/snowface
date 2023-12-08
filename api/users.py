@@ -316,7 +316,7 @@ def get_pending_face(user_id: str):
     res.append(r.smembers(_pendingFace(user_id)))
     return res
 
-def put_user_similarity_resp(now:int, user_id: str, session_id:str,code: int, resp: bytes):
+def put_user_similarity_resp(now:int, user_id: str, code: int, resp: bytes):
     r = _get_client()
     r.hset(_userKey(user_id), mapping= {
         "similarity_response": resp,
