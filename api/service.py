@@ -768,7 +768,7 @@ def process_images(current_user, user_id: str, session_id: str, images:list):
         images_count=images_count,
         session_success = session_success
     )
-    time_to_check_for_similarity = _count_user_images(user_id) >= _images_count_per_call * (current_app.config['TARGET_EMOTION_COUNT']-1) #session_success
+    time_to_check_for_similarity = _count_user_images(user_id) >= _images_count_per_call * (current_app.config['TARGET_EMOTION_COUNT']-1) and (not session_ended)
     # actual photos verification -> result in redis -> session ends -> check redis ->swaps metas in milvus and callback to eskimo
     if time_to_check_for_similarity:
         check_emotions_similarity(usr, current_user)
