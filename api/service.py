@@ -605,7 +605,7 @@ def _save_image(image, idx, user_id):
 def _send_best_images(similarity_server:str, current_user, user_id, files, emotion_session_id):
     try:
         t = time.time()
-        logging.info(f"Initiating similarity call for user_id {user_id} S:{emotion_session_id}")
+        logging.debug(f"Initiating similarity call for user_id {user_id} S:{emotion_session_id}")
         response = requests.post(
             url=f"{similarity_server[:-1] if similarity_server.endswith('/') else similarity_server}/v1w/face-auth/similarity/{user_id}?sessionId={emotion_session_id}",
             files=files,
@@ -616,7 +616,7 @@ def _send_best_images(similarity_server:str, current_user, user_id, files, emoti
         logging.warning(f"Similarity check userID {user_id}: {str(e)}")
 
         raise e
-    logging.info(f"Similarity e2e took for user_id {user_id} S:{emotion_session_id}: {time.time() - t}")
+    logging.debug(f"Similarity e2e took for user_id {user_id} S:{emotion_session_id}: {time.time() - t}")
     _put_user_similarity_resp(time.time_ns(),user_id,response.status_code,response.content)
     if response.status_code == 200:
         return True
