@@ -223,7 +223,19 @@ def set_primary_photo(current_user, client_ip, user_id: str, photo_stream):
 
     existing_md = _get_primary_metadata(user_id, search_growing=False, model=_model_fallback)
     if existing_md is not None:
-        raise exceptions.MetadataAlreadyExists(f"User {user_id} already owns primary face uploaded at {existing_md['uploaded_at']}")
+        # retry webhook as normally user should not get here
+        try:
+            callback(
+                current_user=current_user,
+                primary_md=existing_md,
+                secondary_md=None,
+                user=user
+            )
+            return
+        except UnauthorizedFromWebhook as e:
+            raise e
+        except Exception as e:
+            raise exceptions.MetadataAlreadyExists(f"User {user_id} already owns primary face uploaded at {existing_md['uploaded_at']} but exception occured while syncing webhook: {str(e)}")
 
     if user is not None and user["available_retries"] != 0:
         attempt = user["available_retries"]
