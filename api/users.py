@@ -296,7 +296,7 @@ def update_secondary_metadata_pending(now: int, user_id:str, metadata: list, url
         })
         r.delete(_pendingFace(user_id))
         r.sadd(_pendingFace(user_id), *metadata)
-        p.exexute()
+        p.execute()
     return {
         "user_picture_id": f"{user_id}~2",
         "user_id": user_id,
