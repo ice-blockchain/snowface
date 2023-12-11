@@ -782,11 +782,13 @@ def process_images(current_user, user_id: str, session_id: str, images:list):
 
     result = True
     if session_success:
-        metrics.register_session_length(usr['emotion_sequence']+1)
         result = _finish_session(usr, current_user)
         if not result:
             usr['last_negative_request_at'] = now
+            metrics.register_session_failure()
         session_ended = True
+        if result:
+            metrics.register_session_length(usr['emotion_sequence']+1)
     if (not result) or (not session_ended):
         if _update_emotions_and_best_score(
                 usr=usr,
