@@ -373,7 +373,14 @@ def extract_and_compare_metadatas(user_reference_metadata: list, pics, model):
     best_distance = d
     md = []
     while d > threshold and idx < len(pics):
-        md = predict_pic(pics[idx])
+        try:
+            md = predict_pic(pics[idx])
+        except exceptions.NoFaces as e:
+            if idx >= len(pics) - 1:
+                raise e # last pic, we have to fail anyway
+            else:
+                idx += 1
+                continue
         current_distance = distance.findEuclideanDistance(user_reference_metadata, md)
         if min(best_distance, current_distance) < best_distance:
             best_idx = idx
