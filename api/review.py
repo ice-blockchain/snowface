@@ -62,7 +62,9 @@ def make_decision(now: int, admin_current_user: Token, user_id:str, decision: st
     if not user:
         raise exceptions.UserNotFound("user have no state")
     if not user.get("possible_duplicate_with",[]):
-        raise exceptions.NoDataException(f"user {user_id} is not on review")
+        # possible_duplicate_with might be gone when most similar users are blocked
+        if user.get("duplicate_review_count", None) is None or (not user.get("ip","")):
+            raise exceptions.NoDataException(f"user {user_id} is not on review")
     if most_similar_user_to_duplicate:
         if most_similar_user_to_duplicate in user.get("possible_duplicate_with",[]):
             if decision == "duplicate":

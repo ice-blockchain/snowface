@@ -221,7 +221,8 @@ def mark_user_for_manual_review(user_id: str, ip: str, similar_users: List[str],
     r = _get_client()
     if r.hset(_userKey(user_id),mapping = {
         "ip":ip,
-        "possible_duplicate_with": ",".join(similar_users)
+        "possible_duplicate_with": ",".join(similar_users),
+        "duplicate_review_count": duplicate_review_count
     }) > 0:
         return r.sadd("users_pending_duplicate_review", user_id) > 0
     return False
@@ -250,7 +251,7 @@ def user_reviewed(admin_id: str, user_id: str, retry = False):
             p.hincrby(_userKey(user_id),"duplicate_review_count")
         else:
             p.hdel(_userKey(user_id),"duplicate_review_count")
-        p.hdel(_userKey(user_id),"possible_duplicate_with")
+        p.hdel(_userKey(user_id),"possible_duplicate_with","ip")
         p.delete(f"user_pending_duplicate_review_{admin_id}")
         p.execute()
 def pop_possible_duplicate_with(user_id, user, most_similar_user_id):

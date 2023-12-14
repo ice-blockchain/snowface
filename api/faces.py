@@ -180,7 +180,8 @@ def find_similar_users(user_id: str,metadata: list, threshold: float):
         return [user_id],[]
     if len(results[0].ids) == 0:
         return [user_id],[]
-    r = zip(results[0].ids, results[0].distances)
+    r = list(zip(results[0].ids, results[0].distances))
+    r.sort(key=lambda x: x[1])
     found_user_ids = []
     distances = []
     [(found_user_ids.append(found_user_id.split("~")[0]),distances.append(distance))
