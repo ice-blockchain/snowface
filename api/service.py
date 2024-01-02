@@ -1,3 +1,4 @@
+import json
 import uuid
 import glob
 import logging
@@ -17,7 +18,7 @@ from faces import (
     update_secondary_metadata              as _update_secondary_metadata,
     find_similar_users                     as _find_similar_users,
     set_primary_metadata                   as _set_primary_metadata,
-    delete_metadatas                       as _delete_metadatas
+    apply_secondary_pending                as apply_secondary_pending
 )
 
 from users import (
@@ -35,7 +36,11 @@ from users import (
     unregister_wrongfully_disabled_users_worker   as _unregister_wrongfully_disabled_users_worker,
     register_wrongfully_disabled_users_worker   as _register_wrongfully_disabled_users_worker,
     mark_user_for_manual_review                as _mark_user_for_manual_review,
-    is_review_disabled                         as _is_review_disabled
+    is_review_disabled                         as _is_review_disabled,
+    get_user_similarity_resp                   as _get_user_similarity_resp,
+    put_user_similarity_resp                   as _put_user_similarity_resp,
+    update_secondary_metadata_pending          as _update_secondary_metadata_pending,
+    get_pending_face                           as _get_pending_face
 )
 import review, primary_photo
 
@@ -260,7 +265,7 @@ def set_primary_photo(current_user, client_ip, user_id: str, photo_stream):
     primary_photo.primary_photo_passed(now, current_user, user_id, user, photo_stream.stream, md_sface, md, attempt)
 
 
-def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_pics: list):
+def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_pics: list, emotionSessionId = None):
     now = time.time_ns()
     user_reference_metadata = _get_primary_metadata(user_id, model = _model, search_growing = False)
     if user_reference_metadata is None:
@@ -275,12 +280,13 @@ def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_
         best_md, bestIndex, euclidian, threshold, bestNotFittingIndex = recheck_similarity_using_sface(md_vector, user_id, pics, [best_md], bestNotFittingIndex)
         if bestIndex == -1:
             metrics.register_similarity_failure(euclidian_sface, euclidian)
-
             raise exceptions.NotSameUser(f"user mismatch for user_id {user_id}: distance is greater than {sface_threshold} {threshold}: {euclidian_sface} {euclidian}")
 
     url = put_secondary_photo(user_id,raw_pics[bestIndex].stream)
+    if emotionSessionId:
+        url = f"{url}?emotionSessionId={emotionSessionId}"
     prev_state = _get_secondary_metadata(user_id, model=_model)
-    upd, rows = _update_secondary_metadata(now, user_id, best_md, url, model=_model)
+    upd, rows = _update_secondary_metadata_pending(now, user_id, best_md, url, model=_model)
     ###
     # with metrics.represent_time.labels(model = _model_fallback).time():
     #     m = DeepFace.build_model(_model_fallback)
@@ -291,13 +297,13 @@ def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_
         try:
             callback(current_user, user_reference_metadata, upd, _get_user(user_id))
         except UnauthorizedFromWebhook as e:
-            if prev_state is not None:
-                _update_secondary_metadata(prev_state["uploaded_at"], user_id, prev_state["face_metadata"], prev_state["url"], model=_model)
+            if prev_state is not None: pass
+                #_update_secondary_metadata(prev_state["uploaded_at"], user_id, prev_state["face_metadata"], prev_state["url"], model=_model)
 
             raise e
         except Exception as e:
-            if prev_state is not None:
-                _update_secondary_metadata(prev_state["uploaded_at"], user_id, prev_state["face_metadata"], prev_state["url"], model=_model)
+            if prev_state is not None: pass
+                #_update_secondary_metadata(prev_state["uploaded_at"], user_id, prev_state["face_metadata"], prev_state["url"], model=_model)
 
             raise e # goes to 5xx
 
@@ -307,7 +313,7 @@ def recheck_similarity_using_sface(primary_md, user_id: str, pics: list, sface_m
     secondary_md = _get_secondary_metadata(user_id, model=_model)
     threshold = _similarity_threshold(_model_fallback)
     if not secondary_md:
-        return sface_metadatas[0], bestNotFittingIndex, 0, threshold, bestNotFittingIndex
+        return sface_metadatas[0], -1, -1, threshold, bestNotFittingIndex
 
     try:
         new_pic_md = distance.l2_normalize(DeepFace.represent(
@@ -367,7 +373,14 @@ def extract_and_compare_metadatas(user_reference_metadata: list, pics, model):
     best_distance = d
     md = []
     while d > threshold and idx < len(pics):
-        md = predict_pic(pics[idx])
+        try:
+            md = predict_pic(pics[idx])
+        except exceptions.NoFaces as e:
+            if idx >= len(pics) - 1:
+                raise e # last pic, we have to fail anyway
+            else:
+                idx += 1
+                continue
         current_distance = distance.findEuclideanDistance(user_reference_metadata, md)
         if min(best_distance, current_distance) < best_distance:
             best_idx = idx
@@ -525,7 +538,6 @@ def _generate_emotions(usr):
         idx = int((len(emotions_list))/total_emotions_count)*total_emotions_count
         new_emotion, _ = _get_unique_emotion(emotions_list[idx:], excluded_emotions=emotions_list[-1])
     emotions_list.append(new_emotion)
-
     return ",".join(emotions_list)
 
 def _add_additional_emotion(usr):
@@ -597,19 +609,22 @@ def _save_image(image, idx, user_id):
 
         raise e
 
-def _send_best_images(similarity_server:str, current_user, user_id, files):
+def _send_best_images(similarity_server:str, current_user, user_id, files, emotion_session_id):
     try:
+        t = time.time()
+        logging.debug(f"Initiating similarity call for user_id {user_id} S:{emotion_session_id}")
         response = requests.post(
-            url=f"{similarity_server[:-1] if similarity_server.endswith('/') else similarity_server}/v1w/face-auth/similarity/{user_id}",
+            url=f"{similarity_server[:-1] if similarity_server.endswith('/') else similarity_server}/v1w/face-auth/similarity/{user_id}?sessionId={emotion_session_id}",
             files=files,
             headers={"Authorization": f"Bearer {current_user.raw_token}","X-Account-Metadata": current_user.metadata, "x-queued-time": str(float(time.time()))},
             timeout=25
         )
-    except requests.RequestException as e:
+    except Exception as e:
         logging.warning(f"Similarity check userID {user_id}: {str(e)}")
 
         raise e
-
+    logging.debug(f"Similarity e2e took for user_id {user_id} S:{emotion_session_id}: {time.time() - t}")
+    _put_user_similarity_resp(time.time_ns(),user_id,response.status_code,response.content)
     if response.status_code == 200:
         return True
     else:
@@ -619,7 +634,7 @@ def _send_best_images(similarity_server:str, current_user, user_id, files):
 
     return True
 
-def _finish_session(usr, current_user):
+def check_emotions_similarity(usr, current_user):
     best_indexes = []
     for idx in np.argpartition(usr['best_pictures_score'], -current_app.config['TOTAL_BEST_PICTURES'])[-current_app.config['TOTAL_BEST_PICTURES']:]:
         best_indexes.append(str(idx))
@@ -634,14 +649,31 @@ def _finish_session(usr, current_user):
             _send_best_images,
             current_app.config['SIMILARITY_SERVER'],
             current_user, usr['user_id'],
-            files
+            files, usr['session_id']
         )
     ]
-    identity_match=True # to be handled async way on eskimo / freezer
+
+def _finish_session(usr, current_user):
     #identity_match = _send_best_images(current_app.config['SIMILARITY_SERVER'], token,usr['user_id'], files)
+    identity_match = False
+    similarity_code, similarity_resp = _get_user_similarity_resp(usr["user_id"])
+    if similarity_code is None and similarity_resp is None:
+       logging.warning(f"Similarity check userID {usr['user_id']} not finished yet")
+       identity_match = True
+    if not identity_match and int(similarity_code) == 200:
+        identity_match = True
+    if not identity_match and int(similarity_code) == 400:
+        body = json.loads(similarity_resp)
+        if body["code"] == _user_not_the_same:
+            identity_match = False
     if identity_match:
+        url, uploadedat, face = _get_pending_face(usr['user_id'])
+        if url is not None and uploadedat is not None and face is not None:
+            _update_secondary_metadata(int(uploadedat),usr['user_id'], [float(x) for x in face], str(url), _model)
         _remove_user_images(user_id=usr['user_id'])
         _remove_session(usr['user_id'])
+
+
 
     return identity_match
 
@@ -733,6 +765,7 @@ def process_images(current_user, user_id: str, session_id: str, images:list):
         )
 
     session_success = _count_user_images(user_id) >= _images_count_per_call * current_app.config['TARGET_EMOTION_COUNT']
+
     session_ended = usr['emotion_sequence'] >= current_app.config['MAX_EMOTION_COUNT']
     emotions = _generate_best_scores(
         usr=usr,
@@ -742,14 +775,20 @@ def process_images(current_user, user_id: str, session_id: str, images:list):
         images_count=images_count,
         session_success = session_success
     )
+    time_to_check_for_similarity = (_count_user_images(user_id) >= _images_count_per_call * (current_app.config['TARGET_EMOTION_COUNT']-1)) and (not (session_ended or session_success))
+    # actual photos verification -> result in redis -> session ends -> check redis ->swaps metas in milvus and callback to eskimo
+    if time_to_check_for_similarity:
+        check_emotions_similarity(usr, current_user)
 
     result = True
     if session_success:
-        metrics.register_session_length(usr['emotion_sequence']+1)
         result = _finish_session(usr, current_user)
         if not result:
             usr['last_negative_request_at'] = now
+            metrics.register_session_failure()
         session_ended = True
+        if result:
+            metrics.register_session_length(usr['emotion_sequence']+1)
     if (not result) or (not session_ended):
         if _update_emotions_and_best_score(
                 usr=usr,

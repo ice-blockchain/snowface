@@ -14,6 +14,8 @@ def _get_client():
 
 def _userKey(userId: str):
     return "users:"+userId
+def _pendingFace(userId: str):
+    return "pendingFace:"+userId
 
 def _expirationKey(session_started_at: int, duration: int):
     session_idx = int(session_started_at / duration)
@@ -161,8 +163,8 @@ def remove_expired(session_started_at, user_id):
 
 def remove_session(user_id: str):
     r = _get_client()
-
-    return r.hdel(_userKey(user_id), "session_id")
+    r.hdel(_userKey(user_id), "session_id", "similarity_response","similarity_code", "url","uploaded_at")
+    r.delete(_pendingFace(user_id))
 
 def full_user_reset(user_id: str, prev_state = None):
     r = _get_client()
@@ -284,6 +286,43 @@ def rollback_reviewed(admin_id: str, user_id: str, user: dict, retry = False,):
         p.hset(_userKey(user_id), mapping = {"possible_duplicate_with":",".join(user.get("possible_duplicate_with",[]))})
         p.set(f"user_pending_duplicate_review_{admin_id}", user_id)
         p.execute()
+
+def update_secondary_metadata_pending(now: int, user_id:str, metadata: list, url: str, model: str):
+    r = _get_client()
+    with r.pipeline(transaction=True) as p:
+        r.hset(_userKey(user_id),mapping = {
+            "uploaded_at": now,
+            "url": url,
+        })
+        r.delete(_pendingFace(user_id))
+        r.sadd(_pendingFace(user_id), *metadata)
+        p.execute()
+    return {
+        "user_picture_id": f"{user_id}~2",
+        "user_id": user_id,
+        "picture_id": 2,
+        "face_metadata": metadata,
+        "url": url,
+        "uploaded_at": now
+    }, 1
+
+
+def get_user_similarity_resp(user_id: str):
+    r = _get_client()
+    return r.hmget(_userKey(user_id), ["similarity_code", "similarity_response"])
+def get_pending_face(user_id: str):
+    r = _get_client()
+    res = r.hmget(_userKey(user_id), ["url", "uploaded_at"])
+    res.append(r.smembers(_pendingFace(user_id)))
+    return res
+
+def put_user_similarity_resp(now:int, user_id: str, code: int, resp: bytes):
+    r = _get_client()
+    r.hset(_userKey(user_id), mapping= {
+        "similarity_response": resp,
+        "similarity_code": code,
+        "similarity_finished_at": now
+    })
 
 def is_review_disabled():
     r = _get_client()
