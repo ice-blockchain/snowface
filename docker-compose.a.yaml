@@ -52,6 +52,7 @@ services:
       MAX_CONTENT_LENGTH: 1000000 # 1 Mb
       IMG_STORAGE_PATH: /images # Change to the path where images will be stored.
       METRICS_PASSWORD: metrics-password
+      MIGRATE_PHONE_LOGIN_CALLBACK_URL: https://localhost:1443/v1w/auth/sendSignInLinkToEmail #webhook to eskimo endpoint.
     network_mode: "host"
 
 #    deploy:

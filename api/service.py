@@ -8,7 +8,7 @@ import time
 import shutil
 from os.path import exists
 from datetime import datetime
-from webhook import callback, UnauthorizedFromWebhook
+from webhook import callback, callback_migrate_phone_login, UnauthorizedFromWebhook
 from flask import current_app
 import exceptions
 import jwt
@@ -475,7 +475,7 @@ def _get_unique_emotion(current_emotions_list: list, excluded_emotions = frozens
 
     return choice.lower(), False
 
-def emotions(user_id):
+def emotions(user_id: str, migrate_phone_login: bool):
     now = time.time_ns()
     usr = _get_user(user_id, search_growing=False)
     if usr is not None:
@@ -486,9 +486,10 @@ def emotions(user_id):
         if usr['possible_duplicate_with'] or (usr['last_negative_request_at'] > 0 and now - usr['last_negative_request_at'] <= current_app.config['LIMIT_RATE_NEGATIVE']):
             raise exceptions.NegativeRateLimitException(f"limit rate time didn't pass from the last negative try for user:{user_id} time: {usr['last_negative_request_at']}")
 
-        secondary = _get_secondary_metadata(user_id, model=_model)
-        if secondary is not None and secondary['uploaded_at'] is not None and now - secondary['uploaded_at'] <= current_app.config['LIMIT_RATE']:
-            raise exceptions.RateLimitException(f"rate limit exception for user_id:{user_id}, already passed the liveness at {secondary['uploaded_at']}")
+        if not migrate_phone_login:
+            secondary = _get_secondary_metadata(user_id, model=_model)
+            if secondary is not None and secondary['uploaded_at'] is not None and now - secondary['uploaded_at'] <= current_app.config['LIMIT_RATE']:
+                raise exceptions.RateLimitException(f"rate limit exception for user_id:{user_id}, already passed the liveness at {secondary['uploaded_at']}")
 
         _remove_user_images(user_id)
 
@@ -673,11 +674,9 @@ def _finish_session(usr, current_user):
         _remove_user_images(user_id=usr['user_id'])
         _remove_session(usr['user_id'])
 
-
-
     return identity_match
 
-def process_images(current_user, user_id: str, session_id: str, images:list):
+def process_images(current_user, user_id: str, session_id: str, images:list, migrate_phone_login: bool):
     now = time.time_ns()
     usr = _get_user(user_id, search_growing=False)
     _validate_session(usr=usr, user_id=user_id, session_id=session_id, now=now)
@@ -691,7 +690,7 @@ def process_images(current_user, user_id: str, session_id: str, images:list):
         if _update_last_negative_request_at(usr=usr, now=now) is False:
             raise exceptions.UpsertException(f"update last negative request time failed for user:{user_id}")
 
-        return False, True, usr['emotions']
+        return False, True, usr['emotions'], None
 
     current_emotion = current_emotions_list[usr['emotion_sequence']]
     if usr['emotion_sequence'] >= len(current_emotions_list):
@@ -705,7 +704,7 @@ def process_images(current_user, user_id: str, session_id: str, images:list):
         ) is False:
             raise exceptions.UpsertException(f"can't update emotion sequence for user_id:{user_id}")
 
-        return False, False, usr['emotions']
+        return False, False, usr['emotions'], None
 
     model = DeepFace.build_model("Emotion")
     try:
@@ -753,7 +752,7 @@ def process_images(current_user, user_id: str, session_id: str, images:list):
         ) is False:
             raise exceptions.UpsertException(f"can't update emotion sequence for user_id:{user_id}")
 
-        return False, session_ended, usr['emotions']
+        return False, session_ended, usr['emotions'], None
 
     metrics.register_emotion_success(model,current_emotion,scores, averages)
     images_count = _count_user_images(user_id)
@@ -775,17 +774,26 @@ def process_images(current_user, user_id: str, session_id: str, images:list):
         images_count=images_count,
         session_success = session_success
     )
-    time_to_check_for_similarity = (_count_user_images(user_id) >= _images_count_per_call * (current_app.config['TARGET_EMOTION_COUNT']-1)) and (not (session_ended or session_success))
-    # actual photos verification -> result in redis -> session ends -> check redis ->swaps metas in milvus and callback to eskimo
-    if time_to_check_for_similarity:
-        check_emotions_similarity(usr, current_user)
+    if not migrate_phone_login:
+        time_to_check_for_similarity = (_count_user_images(user_id) >= _images_count_per_call * (current_app.config['TARGET_EMOTION_COUNT']-1)) and (not (session_ended or session_success))
+        # actual photos verification -> result in redis -> session ends -> check redis ->swaps metas in milvus and callback to eskimo
+        if time_to_check_for_similarity:
+            check_emotions_similarity(usr, current_user)
 
     result = True
+    login_session = None
     if session_success:
-        result = _finish_session(usr, current_user)
-        if not result:
-            usr['last_negative_request_at'] = now
-            metrics.register_session_failure()
+        if not migrate_phone_login:
+            result = _finish_session(usr, current_user)
+            if not result:
+                usr['last_negative_request_at'] = now
+                metrics.register_session_failure()
+        else:
+            login_session = callback_migrate_phone_login(current_user=current_user, user_id=user_id)
+
+            _remove_user_images(user_id=usr['user_id'])
+            _remove_session(usr['user_id'])
+
         session_ended = True
         if result:
             metrics.register_session_length(usr['emotion_sequence']+1)
@@ -798,7 +806,7 @@ def process_images(current_user, user_id: str, session_id: str, images:list):
         ) is not True:
             raise exceptions.UpsertException(f"can't update emotion sequence and best score for user_id:{usr['user_id']}")
 
-    return result, session_ended, emotions
+    return result, session_ended, emotions, login_session
 
 def delete_temporary_user_data(user_id:str):
     _remove_user_images(user_id)
