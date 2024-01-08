@@ -7,7 +7,7 @@ from auth import auth_required, Token
 from limits.storage import MemoryStorage
 from limits.strategies import MovingWindowRateLimiter
 from limits import parse
-from webhook import UnauthorizedFromWebhook
+from webhook import UnauthorizedFromWebhook, MigratePhoneLoginWebhookBadRequest, MigratePhoneLoginWebhookConflict, MigratePhoneLoginWebhookRateLimit
 import logging
 
 from prometheus_client import CONTENT_TYPE_LATEST
@@ -292,7 +292,7 @@ def user_status(current_user, user_id):
 def emotions(current_user, user_id):
     with REQUEST_TIME.labels(path="/v1w/face-auth/emotions").time():
         try:
-            emotions_list, session_id, session_expired_at = service.emotions(user_id=user_id)
+            emotions_list, session_id, session_expired_at = service.emotions(user_id=user_id, migrate_phone_login = current_user.phone_number_migration)
 
             return {'emotions': emotions_list, 'sessionId': session_id, 'sessionExpiredAt': session_expired_at}
         except exceptions.UserDisabled as e:
@@ -316,6 +316,10 @@ def emotions(current_user, user_id):
 @auth_required
 def liveness(current_user, user_id, session_id):
     with REQUEST_TIME.labels(path="/v1w/face-auth/liveness").time():
+        if current_user.phone_number_migration:
+            if current_user.phone_migration_email == "" or current_user.language == "" or current_user.device_unique_id == "":
+                return {"message": "not enough params in the request", 'code': _invalid_properties}, 400
+
         images = request.files.getlist("image")
         if images is None:
             return {"message": "you must pass images input", 'code': _invalid_properties}, 400
@@ -328,9 +332,12 @@ def liveness(current_user, user_id, session_id):
                 return {"message": "wrong image format", 'code': _invalid_properties}, 400
 
         try:
-            result, session_ended, emotions = service.process_images(current_user=current_user, user_id=user_id, session_id=session_id, images=images)
+            result, session_ended, emotions, login_session = service.process_images(current_user=current_user, user_id=user_id, session_id=session_id, images=images, migrate_phone_login = current_user.phone_number_migration)
+            response = {'result': result, 'sessionEnded': session_ended, 'emotions': emotions.split(","), 'sessionId': session_id}
+            if login_session is not None:
+                response['loginSession'] = login_session
 
-            return {'result': result, 'sessionEnded': session_ended, 'emotions': emotions.split(","), 'sessionId': session_id}
+            return response
         except exceptions.WrongImageSizeException as e:
             _log_error(current_user, e)
 
@@ -343,6 +350,10 @@ def liveness(current_user, user_id, session_id):
             _log_error(current_user, e)
 
             return {'message': str(e), 'code': _user_disabled}, 403
+        except MigratePhoneLoginWebhookBadRequest as e:
+            _log_error(current_user, e)
+
+            return {'message': str(e), 'code': _invalid_properties}, 400
         except exceptions.SessionTimeOutException as e:
             _log_error(current_user, e)
 
@@ -351,7 +362,15 @@ def liveness(current_user, user_id, session_id):
             _log_error(current_user, e)
 
             return {'message': str(e), 'code': _session_not_found}, 404
+        except MigratePhoneLoginWebhookConflict as e:
+            _log_error(current_user, e)
+
+            return {'message': str(e), 'code': _invalid_properties}, 409
         except exceptions.NegativeRateLimitException as e:
+            _log_error(current_user, e)
+
+            return {'message': str(e), 'code': _rate_limit_negative_exceeded}, 429
+        except MigratePhoneLoginWebhookRateLimit as e:
             _log_error(current_user, e)
 
             return {'message': str(e), 'code': _rate_limit_negative_exceeded}, 429

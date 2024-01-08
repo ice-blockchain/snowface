@@ -20,6 +20,10 @@ class Token:
     role: str
     raw_token: str
     metadata: str
+    phone_migration_email: str
+    language: str
+    device_unique_id: str
+    phone_number_migration: bool
     _provider: str
 
     def __init__(self, token, user_id: str, email: str, role: str, provider: str):
@@ -64,8 +68,18 @@ def auth_required(f):
                 return {
                     "message": f"operation not allowed. uri>{user_id_in_url}!=token>{user.user_id}",
                     "code": "OPERATION_NOT_ALLOWED"
-
                 }, 403
+
+            if "Migrate-Phone-Number-To-Email" in request.headers:
+                if "Migrate-Phone-Number-Language" in request.headers:
+                    user.language = request.headers["Migrate-Phone-Number-Language"]
+                if "Migrate-Phone-Number-Device-Unique-Id" in request.headers:
+                    user.device_unique_id = request.headers["Migrate-Phone-Number-Device-Unique-Id"]
+                if "Migrate-Phone-Number-Email" in request.headers:
+                    user.phone_migration_email = request.headers["Migrate-Phone-Number-Email"]
+
+                user.phone_number_migration = True
+
         except Exception as e:
             logging.error(e)
 

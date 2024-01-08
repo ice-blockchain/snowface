@@ -54,11 +54,14 @@ def create_app():
     app.config["PRIMARY_PHOTO_SFACE_DISTANCE"] = float(os.environ.get('PRIMARY_PHOTO_SFACE_DISTANCE', findThreshold(_model,_similarity_metric)))
     app.config["PRIMARY_PHOTO_ARCFACE_DISTANCE"] = float(os.environ.get('PRIMARY_PHOTO_ARCFACE_DISTANCE', findThreshold(_model_fallback,_similarity_metric)))
     app.config["PRIMARY_PHOTO_RETRIES"] = int(os.environ.get('PRIMARY_PHOTO_RETRIES', 3))
+    app.config['MIGRATE_PHONE_LOGIN_CALLBACK_URL'] = os.environ.get("MIGRATE_PHONE_LOGIN_CALLBACK_URL")
 
     init_rate_limiters(app)
 
     if not app.config['METADATA_UPDATED_SECRET'] and app.config['METADATA_UPDATED_CALLBACK_URL']:
         raise Exception("METADATA_UPDATED_SECRET was not set")
+    if not app.config['MIGRATE_PHONE_LOGIN_CALLBACK_URL'] and app.config['MIGRATE_PHONE_LOGIN_CALLBACK_URL']:
+        raise Exception("MIGRATE_PHONE_LOGIN_CALLBACK_URL was not set")
     app.config['SESSION_DURATION'] = int(os.environ.get('SESSION_DURATION', _default_session_duration)) * int(1e9)
     app.config['LIMIT_RATE'] = int(os.environ.get('LIMIT_RATE', 60)) * int(1e9)
     app.config['LIMIT_RATE_NEGATIVE'] = int(os.environ.get('LIMIT_RATE_NEGATIVE', 1)) * int(1e9)
