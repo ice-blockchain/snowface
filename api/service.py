@@ -8,7 +8,7 @@ import time
 import shutil
 from os.path import exists
 from datetime import datetime
-from webhook import callback, callback_migrate_phone_login, UnauthorizedFromWebhook
+from webhook import callback, callback_migrate_phone_login, UnauthorizedFromWebhook, MigratePhoneLoginWebhookBadRequest, MigratePhoneLoginWebhookConflict, MigratePhoneLoginWebhookRateLimit
 from flask import current_app
 import exceptions
 import jwt
@@ -40,7 +40,9 @@ from users import (
     get_user_similarity_resp                   as _get_user_similarity_resp,
     put_user_similarity_resp                   as _put_user_similarity_resp,
     update_secondary_metadata_pending          as _update_secondary_metadata_pending,
-    get_pending_face                           as _get_pending_face
+    update_login_session_pending               as _update_login_session_pending,
+    get_pending_face                           as _get_pending_face,
+    get_pending_login_session                  as _get_pending_login_session
 )
 import review, primary_photo
 
@@ -87,6 +89,9 @@ _default_session_duration = 600
 __admin_token = None
 __stop_wrongfully_disabled_users_worker = False
 
+_invalid_properties = "INVALID_PROPERTIES"
+_conflict_with_another_user = "CONFLICT_WITH_ANOTHER_USER"
+_too_many_requests = "TOO_MANY_REQUESTS"
 
 def represent(img_path, model_name, detector_backend, enforce_detection, align):
     result = {}
@@ -265,7 +270,7 @@ def set_primary_photo(current_user, client_ip, user_id: str, photo_stream):
     primary_photo.primary_photo_passed(now, current_user, user_id, user, photo_stream.stream, md_sface, md, attempt)
 
 
-def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_pics: list, emotionSessionId = None):
+def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_pics: list, migrate_phone_login: bool, emotionSessionId = None):
     now = time.time_ns()
     user_reference_metadata = _get_primary_metadata(user_id, model = _model, search_growing = False)
     if user_reference_metadata is None:
@@ -282,32 +287,40 @@ def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_
             metrics.register_similarity_failure(euclidian_sface, euclidian)
             raise exceptions.NotSameUser(f"user mismatch for user_id {user_id}: distance is greater than {sface_threshold} {threshold}: {euclidian_sface} {euclidian}")
 
-    url = put_secondary_photo(user_id,raw_pics[bestIndex].stream)
-    if emotionSessionId:
-        url = f"{url}?emotionSessionId={emotionSessionId}"
-    prev_state = _get_secondary_metadata(user_id, model=_model)
-    upd, rows = _update_secondary_metadata_pending(now, user_id, best_md, url, model=_model)
-    ###
-    # with metrics.represent_time.labels(model = _model_fallback).time():
-    #     m = DeepFace.build_model(_model_fallback)
-    #     md_arcface = distance.l2_normalize(m.predict(np.expand_dims(pics[bestIndex][::2,::2], axis=0), verbose = 0)[0].tolist())
-    #     _update_secondary_metadata(now, user_id, md_arcface, url, model=_model_fallback)
-    ###
-    if rows > 0:
-        try:
-            callback(current_user, user_reference_metadata, upd, _get_user(user_id))
-        except UnauthorizedFromWebhook as e:
-            if prev_state is not None: pass
-                #_update_secondary_metadata(prev_state["uploaded_at"], user_id, prev_state["face_metadata"], prev_state["url"], model=_model)
+    if not migrate_phone_login:
+        url = put_secondary_photo(user_id,raw_pics[bestIndex].stream)
+        if emotionSessionId:
+            url = f"{url}?emotionSessionId={emotionSessionId}"
+        prev_state = _get_secondary_metadata(user_id, model=_model)
+        upd, rows = _update_secondary_metadata_pending(now, user_id, best_md, url, model=_model)
+        ###
+        # with metrics.represent_time.labels(model = _model_fallback).time():
+        #     m = DeepFace.build_model(_model_fallback)
+        #     md_arcface = distance.l2_normalize(m.predict(np.expand_dims(pics[bestIndex][::2,::2], axis=0), verbose = 0)[0].tolist())
+        #     _update_secondary_metadata(now, user_id, md_arcface, url, model=_model_fallback)
+        ###
+        if rows > 0:
+            try:
+                callback(current_user, user_reference_metadata, upd, _get_user(user_id))
+            except UnauthorizedFromWebhook as e:
+                if prev_state is not None: pass
+                    #_update_secondary_metadata(prev_state["uploaded_at"], user_id, prev_state["face_metadata"], prev_state["url"], model=_model)
 
-            raise e
-        except Exception as e:
-            if prev_state is not None: pass
-                #_update_secondary_metadata(prev_state["uploaded_at"], user_id, prev_state["face_metadata"], prev_state["url"], model=_model)
+                raise e
+            except Exception as e:
+                if prev_state is not None: pass
+                    #_update_secondary_metadata(prev_state["uploaded_at"], user_id, prev_state["face_metadata"], prev_state["url"], model=_model)
 
-            raise e # goes to 5xx
+                raise e # goes to 5xx
 
-        return bestIndex, euclidian, upd["uploaded_at"]
+            return bestIndex, euclidian, upd["uploaded_at"], None
+    else:
+        login_session = callback_migrate_phone_login(current_user=current_user, user_id=user_id)
+
+        if login_session is not None:
+            _update_login_session_pending(user_id, login_session)
+
+        return bestIndex, euclidian, None, login_session
 
 def recheck_similarity_using_sface(primary_md, user_id: str, pics: list, sface_metadatas: list, bestNotFittingIndex: int):
     secondary_md = _get_secondary_metadata(user_id, model=_model)
@@ -610,14 +623,26 @@ def _save_image(image, idx, user_id):
 
         raise e
 
-def _send_best_images(similarity_server:str, current_user, user_id, files, emotion_session_id):
+def _send_best_images(similarity_server:str, current_user, user_id, files, emotion_session_id, migrate_phone_login):
     try:
         t = time.time()
         logging.debug(f"Initiating similarity call for user_id {user_id} S:{emotion_session_id}")
+
+        if not migrate_phone_login:
+            headers = {"Authorization": f"Bearer {current_user.raw_token}","X-Account-Metadata": current_user.metadata, "x-queued-time": str(float(time.time()))}
+        else:
+            headers = {
+                "X-Migrate-Phone-Number-To-Email": "",
+                "X-Migrate-Phone-Number-Language": current_user.language,
+                "X-Migrate-Phone-Number-Device-Unique-Id": current_user.device_unique_id,
+                "X-Migrate-Phone-Number-Email": current_user.email,
+                "x-queued-time": str(float(time.time()))
+            }
+
         response = requests.post(
             url=f"{similarity_server[:-1] if similarity_server.endswith('/') else similarity_server}/v1w/face-auth/similarity/{user_id}?sessionId={emotion_session_id}",
             files=files,
-            headers={"Authorization": f"Bearer {current_user.raw_token}","X-Account-Metadata": current_user.metadata, "x-queued-time": str(float(time.time()))},
+            headers=headers,
             timeout=25
         )
     except Exception as e:
@@ -635,7 +660,7 @@ def _send_best_images(similarity_server:str, current_user, user_id, files, emoti
 
     return True
 
-def check_emotions_similarity(usr, current_user):
+def check_emotions_similarity(usr, current_user, migrate_phone_login):
     best_indexes = []
     for idx in np.argpartition(usr['best_pictures_score'], -current_app.config['TOTAL_BEST_PICTURES'])[-current_app.config['TOTAL_BEST_PICTURES']:]:
         best_indexes.append(str(idx))
@@ -650,31 +675,57 @@ def check_emotions_similarity(usr, current_user):
             _send_best_images,
             current_app.config['SIMILARITY_SERVER'],
             current_user, usr['user_id'],
-            files, usr['session_id']
+            files, usr['session_id'],
+            migrate_phone_login
         )
     ]
 
-def _finish_session(usr, current_user):
+def _finish_session(usr, current_user, migrate_phone_login):
     #identity_match = _send_best_images(current_app.config['SIMILARITY_SERVER'], token,usr['user_id'], files)
+    login_session = None
     identity_match = False
     similarity_code, similarity_resp = _get_user_similarity_resp(usr["user_id"])
+
     if similarity_code is None and similarity_resp is None:
        logging.warning(f"Similarity check userID {usr['user_id']} not finished yet")
        identity_match = True
+
     if not identity_match and int(similarity_code) == 200:
         identity_match = True
+
     if not identity_match and int(similarity_code) == 400:
         body = json.loads(similarity_resp)
         if body["code"] == _user_not_the_same:
             identity_match = False
+
+        if migrate_phone_login and body["code"] == _invalid_properties:
+            raise MigratePhoneLoginWebhookBadRequest(body["message"])
+
+    if migrate_phone_login and not identity_match and int(similarity_code) == 409:
+        body = json.loads(similarity_resp)
+        if body["code"] == _conflict_with_another_user:
+            raise MigratePhoneLoginWebhookConflict(body["message"])
+
+    if migrate_phone_login and not identity_match and int(similarity_code) == 429:
+        body = json.loads(similarity_resp)
+        if body["code"] == _too_many_requests:
+            raise MigratePhoneLoginWebhookRateLimit(body["message"])
+
     if identity_match:
-        url, uploadedat, face = _get_pending_face(usr['user_id'])
-        if url is not None and uploadedat is not None and face is not None:
-            _update_secondary_metadata(int(uploadedat),usr['user_id'], [float(x) for x in face], str(url), _model)
+        if not migrate_phone_login:
+            url, uploadedat, face = _get_pending_face(usr['user_id'])
+            if url is not None and uploadedat is not None and face is not None:
+                _update_secondary_metadata(int(uploadedat),usr['user_id'], [float(x) for x in face], str(url), _model)
+        else:
+            pending = _get_pending_login_session(usr['user_id'])
+
+            if pending is not None and len(pending) > 0:
+                login_session = pending[0].decode("utf-8")
+
         _remove_user_images(user_id=usr['user_id'])
         _remove_session(usr['user_id'])
 
-    return identity_match
+    return identity_match, login_session
 
 def process_images(current_user, user_id: str, session_id: str, images:list, migrate_phone_login: bool):
     now = time.time_ns()
@@ -774,25 +825,19 @@ def process_images(current_user, user_id: str, session_id: str, images:list, mig
         images_count=images_count,
         session_success = session_success
     )
-    if not migrate_phone_login:
-        time_to_check_for_similarity = (_count_user_images(user_id) >= _images_count_per_call * (current_app.config['TARGET_EMOTION_COUNT']-1)) and (not (session_ended or session_success))
-        # actual photos verification -> result in redis -> session ends -> check redis ->swaps metas in milvus and callback to eskimo
-        if time_to_check_for_similarity:
-            check_emotions_similarity(usr, current_user)
+    time_to_check_for_similarity = (_count_user_images(user_id) >= _images_count_per_call * (current_app.config['TARGET_EMOTION_COUNT']-1)) and (not (session_ended or session_success))
+    # actual photos verification -> result in redis -> session ends -> check redis ->swaps metas in milvus and callback to eskimo (for non migrate case)
+    if time_to_check_for_similarity:
+        check_emotions_similarity(usr, current_user, migrate_phone_login)
 
     result = True
     login_session = None
     if session_success:
-        if not migrate_phone_login:
-            result = _finish_session(usr, current_user)
-            if not result:
-                usr['last_negative_request_at'] = now
-                metrics.register_session_failure()
-        else:
-            login_session = callback_migrate_phone_login(current_user=current_user, user_id=user_id)
+        result, login_session = _finish_session(usr, current_user, migrate_phone_login)
 
-            _remove_user_images(user_id=usr['user_id'])
-            _remove_session(usr['user_id'])
+        if not result:
+            usr['last_negative_request_at'] = now
+            metrics.register_session_failure()
 
         session_ended = True
         if result:
