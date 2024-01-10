@@ -49,6 +49,7 @@ def wrapped_auth_required(allow_migrate_phone_number_to_email = False):
                 language = ""
                 device_unique_id = ""
                 email = ""
+                user_id = request.view_args.get("user_id","")
 
                 if "X-Migrate-Phone-Number-Language" in request.headers:
                     language = request.headers["X-Migrate-Phone-Number-Language"]
@@ -57,7 +58,7 @@ def wrapped_auth_required(allow_migrate_phone_number_to_email = False):
                 if "X-Migrate-Phone-Number-Email" in request.headers:
                     email = request.headers["X-Migrate-Phone-Number-Email"]
 
-                user = Token(None, user_id=kwargs['user_id'], email=email, device_unique_id=device_unique_id, phone_number_migration=True, language=language, role='', provider='')
+                user = Token(None, user_id=user_id, email=email, device_unique_id=device_unique_id, phone_number_migration=True, language=language, role='', provider='')
 
                 return f(user, *args, **kwargs)
 
