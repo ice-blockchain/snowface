@@ -157,7 +157,6 @@ def similar(current_user, user_id):
         if current_user.phone_number_migration:
             if current_user.email == "" or current_user.language == "" or current_user.device_unique_id == "":
                 return {"message": "not enough params in the request", 'code': _invalid_properties}, 400
-            current_user.user_id = user_id
 
         for img in request.files.getlist("image"):
             if _allowed_file_format(img.filename) is False:
@@ -203,7 +202,7 @@ def _log_error(current_user: Token, e: Exception, unexpected = False):
     logging.error(f"[U:{current_user.user_id}] "+str(e), exc_info=e if unexpected else None)
 
 @blueprint.route("/v1w/face-auth/primary_photo/<user_id>", methods=["POST"])
-@wrapped_auth_required(allow_migrate_phone_number_to_email=False)
+@wrapped_auth_required()
 @client_ip
 def primary_photo(current_user,client_ip, user_id):
     with REQUEST_TIME.labels(path="/v1w/face-auth/primary_photo").time():
@@ -254,7 +253,7 @@ def primary_photo(current_user,client_ip, user_id):
             return {"message":"oops, an error occured"}, 500
 
 @blueprint.route("/v1w/face-auth/", methods=["DELETE"])
-@wrapped_auth_required(allow_migrate_phone_number_to_email=False)
+@wrapped_auth_required()
 def delete_photos(current_user: Token):
     with REQUEST_TIME.labels(path="/v1w/face-auth/").time():
         user_id = ""
@@ -294,7 +293,7 @@ def delete_photos(current_user: Token):
             return {"message":"oops, an error occured"}, 500
 
 @blueprint.route("/v1r/face-auth/status/<user_id>", methods=["GET"])
-@wrapped_auth_required(allow_migrate_phone_number_to_email=False)
+@wrapped_auth_required()
 def user_status(current_user, user_id):
     with REQUEST_TIME.labels(path="/v1w/face-auth/status").time():
         try:
@@ -310,9 +309,6 @@ def user_status(current_user, user_id):
 @wrapped_auth_required(allow_migrate_phone_number_to_email=True)
 def emotions(current_user, user_id):
     with REQUEST_TIME.labels(path="/v1w/face-auth/emotions").time():
-        if current_user.phone_number_migration:
-            current_user.user_id = user_id
-
         try:
             emotions_list, session_id, session_expired_at = service.emotions(user_id=user_id, migrate_phone_login = current_user.phone_number_migration)
 
@@ -341,7 +337,6 @@ def liveness(current_user, user_id, session_id):
         if current_user.phone_number_migration:
             if current_user.email == "" or current_user.language == "" or current_user.device_unique_id == "":
                 return {"message": "not enough params in the request", 'code': _invalid_properties}, 400
-            current_user.user_id = user_id
 
         images = request.files.getlist("image")
         if images is None:
@@ -403,7 +398,7 @@ def liveness(current_user, user_id, session_id):
             return {"message":"oops, an error occured"}, 500
 
 @blueprint.route("/v1w/face-auth/enable", methods=["POST"])
-@wrapped_auth_required(allow_migrate_phone_number_to_email=False)
+@wrapped_auth_required()
 def enable_user(current_user: Token):
     if current_user.role != "admin":
         return {'message': f'insufficient role: "{current_user.role}"'}, 403
@@ -429,7 +424,7 @@ def enable_user(current_user: Token):
         return {"message": str(e)}, 500
 
 @blueprint.route("/v1w/face-auth/primary_photo/review_duplicates", methods = ["POST"])
-@wrapped_auth_required(allow_migrate_phone_number_to_email=False)
+@wrapped_auth_required()
 def review_duplicates(current_user: Token):
     if current_user.role != "admin":
         return {'message': f'insufficient role: "{current_user.role}"'}, 403
