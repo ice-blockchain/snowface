@@ -20,13 +20,12 @@ class Token:
     role: str
     raw_token: str
     metadata: str
-    phone_migration_email: str
     language: str
     device_unique_id: str
     phone_number_migration: bool
     _provider: str
 
-    def __init__(self, token, user_id: str, email: str, role: str, provider: str):
+    def __init__(self, token, user_id: str, email: str, role: str, provider: str, device_unique_id = "", language = "", phone_number_migration = False):
         self.raw_token = token
         self.user_id = user_id
         self.email = email
@@ -34,63 +33,75 @@ class Token:
         self._provider = provider
         self.raw_token = token
         self.metadata = ""
+        self.device_unique_id = device_unique_id
+        self.language = language
+        self.phone_number_migration = phone_number_migration
 
     def isICE(self):
         return self._provider == "ice"
 
-def auth_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        token = None
-        if "Authorization" in request.headers:
-            token = request.headers["Authorization"].replace("Bearer ","",1)
+def wrapped_auth_required(allow_migrate_phone_number_to_email = False):
+    def auth_required(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            token = None
+            if allow_migrate_phone_number_to_email and "X-Migrate-Phone-Number-To-Email" in request.headers:
+                language = ""
+                device_unique_id = ""
+                email = ""
+                user_id = request.view_args.get("user_id","")
 
-        if not token:
-            return {
-                "message": "Authorization token not presented",
-                "code": "INVALID_TOKEN",
-                "error": "Unauthorized"
-            }, 401
-        try:
-            data = jwt.decode(token, options={"verify_signature": False})
-            if data["iss"] == _issuer_ice:
-                user = _parse_ice(token)
-            else:
-                user = _parse_firebase(token)
+                if "X-Migrate-Phone-Number-Language" in request.headers:
+                    language = request.headers["X-Migrate-Phone-Number-Language"]
+                if "X-Migrate-Phone-Number-Device-Unique-Id" in request.headers:
+                    device_unique_id = request.headers["X-Migrate-Phone-Number-Device-Unique-Id"]
+                if "X-Migrate-Phone-Number-Email" in request.headers:
+                    email = request.headers["X-Migrate-Phone-Number-Email"]
 
-            if "X-Account-Metadata" in request.headers:
-                user = _modify_with_metadata(user, request.headers["X-Account-Metadata"])
+                user = Token(None, user_id=user_id, email=email, device_unique_id=device_unique_id, phone_number_migration=True, language=language, role='', provider='')
 
-            user_id_in_url = request.view_args.get("user_id","")
-            if user_id_in_url and user_id_in_url != user.user_id:
-                logging.error(f"operation not allowed. uri>{user_id_in_url}!=token>{user.user_id}")
+                return f(user, *args, **kwargs)
+
+            if "Authorization" in request.headers:
+                token = request.headers["Authorization"].replace("Bearer ","",1)
+
+            if not token:
+                return {
+                    "message": "Authorization token not presented",
+                    "code": "INVALID_TOKEN",
+                    "error": "Unauthorized"
+                }, 401
+            try:
+                data = jwt.decode(token, options={"verify_signature": False})
+                if data["iss"] == _issuer_ice:
+                    user = _parse_ice(token)
+                else:
+                    user = _parse_firebase(token)
+
+                if "X-Account-Metadata" in request.headers:
+                    user = _modify_with_metadata(user, request.headers["X-Account-Metadata"])
+
+                user_id_in_url = request.view_args.get("user_id","")
+                if user_id_in_url and user_id_in_url != user.user_id:
+                    logging.error(f"operation not allowed. uri>{user_id_in_url}!=token>{user.user_id}")
+
+                    return {
+                        "message": f"operation not allowed. uri>{user_id_in_url}!=token>{user.user_id}",
+                        "code": "OPERATION_NOT_ALLOWED"
+                    }, 403
+
+            except Exception as e:
+                logging.error(e)
 
                 return {
-                    "message": f"operation not allowed. uri>{user_id_in_url}!=token>{user.user_id}",
-                    "code": "OPERATION_NOT_ALLOWED"
-                }, 403
+                    "message": str(e),
+                    "code": "INVALID_TOKEN",
+                }, 401
 
-            if "Migrate-Phone-Number-To-Email" in request.headers:
-                if "Migrate-Phone-Number-Language" in request.headers:
-                    user.language = request.headers["Migrate-Phone-Number-Language"]
-                if "Migrate-Phone-Number-Device-Unique-Id" in request.headers:
-                    user.device_unique_id = request.headers["Migrate-Phone-Number-Device-Unique-Id"]
-                if "Migrate-Phone-Number-Email" in request.headers:
-                    user.phone_migration_email = request.headers["Migrate-Phone-Number-Email"]
+            return f(user, *args, **kwargs)
 
-                user.phone_number_migration = True
-
-        except Exception as e:
-            logging.error(e)
-
-            return {
-                "message": str(e),
-                "code": "INVALID_TOKEN",
-            }, 401
-
-        return f(user, *args, **kwargs)
-
-    return decorated
+        return decorated
+    return auth_required
 
 def _parse_ice(token):
     jwt_data=jwt.decode(token, current_app.config["JWT_SECRET"], algorithms=["HS256"])

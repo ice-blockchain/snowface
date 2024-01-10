@@ -3,7 +3,7 @@ import base64
 from flask import Blueprint, request, current_app, Response
 import service, exceptions, webhook
 
-from auth import auth_required, Token
+from auth import wrapped_auth_required, Token
 from limits.storage import MemoryStorage
 from limits.strategies import MovingWindowRateLimiter
 from limits import parse
@@ -34,6 +34,8 @@ _user_disabled = "USER_DISABLED"
 _already_uploaded = "ALREADY_UPLOADED"
 _no_pending_users = "NO_PENDING_USERS"
 _not_in_review = "USER_IS_NOT_ON_REVIEW"
+_conflict_with_another_user = "CONFLICT_WITH_ANOTHER_USER"
+_too_many_requests = "TOO_MANY_REQUESTS"
 _allowed_extensions = {'jpg', 'jpeg'}
 
 _primary_photo_rate_limiter = MovingWindowRateLimiter(storage=MemoryStorage())
@@ -149,18 +151,22 @@ def analyze():
     return demographies
 
 @blueprint.route("/v1w/face-auth/similarity/<user_id>", methods=["POST"])
-@auth_required
+@wrapped_auth_required(allow_migrate_phone_number_to_email=True)
 def similar(current_user, user_id):
     with REQUEST_TIME.labels(path="/v1w/face-auth/similarity").time():
+        if current_user.phone_number_migration:
+            if current_user.email == "" or current_user.language == "" or current_user.device_unique_id == "":
+                return {"message": "not enough params in the request", 'code': _invalid_properties}, 400
+
         for img in request.files.getlist("image"):
             if _allowed_file_format(img.filename) is False:
                 return {"message": "wrong image format", 'code': _invalid_properties}, 400
 
         try:
             emotion_session_id = request.args.get("sessionId")
-            bestIndex, euclidian, updateTime = service.check_similarity_and_update_secondary_photo(current_user, user_id, request.files.getlist("image"),emotion_session_id)
+            bestIndex, euclidian, updateTime, login_session = service.check_similarity_and_update_secondary_photo(current_user, user_id, request.files.getlist("image"), current_user.phone_number_migration, emotion_session_id)
 
-            return  {"userId":user_id, "bestIndex":bestIndex, "distance": euclidian, "secondaryPhotoUpdatedAt":updateTime}
+            return  {"userId":user_id, "bestIndex":bestIndex, "distance": euclidian, "secondaryPhotoUpdatedAt":updateTime, "loginSession": login_session}
         except exceptions.MetadataNotFound as e:
             _log_error(current_user, e)
 
@@ -173,8 +179,20 @@ def similar(current_user, user_id):
             _log_error(current_user, e)
 
             return {"message": str(e), "code":_no_faces}, 400
+        except MigratePhoneLoginWebhookBadRequest as e:
+            _log_error(current_user, e)
+
+            return {'message': str(e), 'code': _invalid_properties}, 400
         except webhook.UnauthorizedFromWebhook as e:
             return str(e), 401
+        except MigratePhoneLoginWebhookConflict as e:
+            _log_error(current_user, e)
+
+            return {'message': str(e), 'code': _conflict_with_another_user}, 409
+        except MigratePhoneLoginWebhookRateLimit as e:
+            _log_error(current_user, e)
+
+            return {'message': str(e), 'code': _too_many_requests}, 429
         except Exception as e:
             _log_error(current_user, e, True)
 
@@ -184,7 +202,7 @@ def _log_error(current_user: Token, e: Exception, unexpected = False):
     logging.error(f"[U:{current_user.user_id}] "+str(e), exc_info=e if unexpected else None)
 
 @blueprint.route("/v1w/face-auth/primary_photo/<user_id>", methods=["POST"])
-@auth_required
+@wrapped_auth_required()
 @client_ip
 def primary_photo(current_user,client_ip, user_id):
     with REQUEST_TIME.labels(path="/v1w/face-auth/primary_photo").time():
@@ -235,7 +253,7 @@ def primary_photo(current_user,client_ip, user_id):
             return {"message":"oops, an error occured"}, 500
 
 @blueprint.route("/v1w/face-auth/", methods=["DELETE"])
-@auth_required
+@wrapped_auth_required()
 def delete_photos(current_user: Token):
     with REQUEST_TIME.labels(path="/v1w/face-auth/").time():
         user_id = ""
@@ -275,7 +293,7 @@ def delete_photos(current_user: Token):
             return {"message":"oops, an error occured"}, 500
 
 @blueprint.route("/v1r/face-auth/status/<user_id>", methods=["GET"])
-@auth_required
+@wrapped_auth_required()
 def user_status(current_user, user_id):
     with REQUEST_TIME.labels(path="/v1w/face-auth/status").time():
         try:
@@ -288,7 +306,7 @@ def user_status(current_user, user_id):
             return {"message":"oops, an error occured"}, 500
 
 @blueprint.route("/v1w/face-auth/emotions/<user_id>", methods=["POST"])
-@auth_required
+@wrapped_auth_required(allow_migrate_phone_number_to_email=True)
 def emotions(current_user, user_id):
     with REQUEST_TIME.labels(path="/v1w/face-auth/emotions").time():
         try:
@@ -313,11 +331,11 @@ def emotions(current_user, user_id):
             return {"message":"oops, an error occured"}, 500
 
 @blueprint.route("/v1w/face-auth/liveness/<user_id>/<session_id>", methods=["POST"])
-@auth_required
+@wrapped_auth_required(allow_migrate_phone_number_to_email=True)
 def liveness(current_user, user_id, session_id):
     with REQUEST_TIME.labels(path="/v1w/face-auth/liveness").time():
         if current_user.phone_number_migration:
-            if current_user.phone_migration_email == "" or current_user.language == "" or current_user.device_unique_id == "":
+            if current_user.email == "" or current_user.language == "" or current_user.device_unique_id == "":
                 return {"message": "not enough params in the request", 'code': _invalid_properties}, 400
 
         images = request.files.getlist("image")
@@ -365,7 +383,7 @@ def liveness(current_user, user_id, session_id):
         except MigratePhoneLoginWebhookConflict as e:
             _log_error(current_user, e)
 
-            return {'message': str(e), 'code': _invalid_properties}, 409
+            return {'message': str(e), 'code': _conflict_with_another_user}, 409
         except exceptions.NegativeRateLimitException as e:
             _log_error(current_user, e)
 
@@ -373,14 +391,14 @@ def liveness(current_user, user_id, session_id):
         except MigratePhoneLoginWebhookRateLimit as e:
             _log_error(current_user, e)
 
-            return {'message': str(e), 'code': _rate_limit_negative_exceeded}, 429
+            return {'message': str(e), 'code': _too_many_requests}, 429
         except Exception as e:
             _log_error(current_user, e, True)
 
             return {"message":"oops, an error occured"}, 500
 
 @blueprint.route("/v1w/face-auth/enable", methods=["POST"])
-@auth_required
+@wrapped_auth_required()
 def enable_user(current_user: Token):
     if current_user.role != "admin":
         return {'message': f'insufficient role: "{current_user.role}"'}, 403
@@ -406,7 +424,7 @@ def enable_user(current_user: Token):
         return {"message": str(e)}, 500
 
 @blueprint.route("/v1w/face-auth/primary_photo/review_duplicates", methods = ["POST"])
-@auth_required
+@wrapped_auth_required()
 def review_duplicates(current_user: Token):
     if current_user.role != "admin":
         return {'message': f'insufficient role: "{current_user.role}"'}, 403

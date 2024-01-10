@@ -106,7 +106,7 @@ def callback_migrate_phone_login(current_user, user_id):
     webhook_result = requests.post(url=url+"?userId="+user_id, headers={
         "X-API-Key": current_app.config["METADATA_UPDATED_SECRET"],
         "X-User-ID": user_id
-    }, json={"email": current_user.phone_migration_email, "deviceUniqueId": current_user.device_unique_id, "language": current_user.language}, verify=False, timeout=25)
+    }, json={"email": current_user.email, "deviceUniqueId": current_user.device_unique_id, "language": current_user.language}, verify=False, timeout=25)
 
     try:
         res = webhook_result.json()

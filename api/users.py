@@ -163,7 +163,7 @@ def remove_expired(session_started_at, user_id):
 
 def remove_session(user_id: str):
     r = _get_client()
-    r.hdel(_userKey(user_id), "session_id", "similarity_response","similarity_code", "url","uploaded_at")
+    r.hdel(_userKey(user_id), "session_id", "similarity_response","similarity_code", "url","uploaded_at","login_session")
     r.delete(_pendingFace(user_id))
 
 def full_user_reset(user_id: str, prev_state = None):
@@ -306,15 +306,27 @@ def update_secondary_metadata_pending(now: int, user_id:str, metadata: list, url
         "uploaded_at": now
     }, 1
 
+def update_login_session_pending(user_id:str, login_session):
+    r = _get_client()
+
+    r.hset(_userKey(user_id),mapping = {
+        "login_session": login_session
+    })
 
 def get_user_similarity_resp(user_id: str):
     r = _get_client()
     return r.hmget(_userKey(user_id), ["similarity_code", "similarity_response"])
+
 def get_pending_face(user_id: str):
     r = _get_client()
     res = r.hmget(_userKey(user_id), ["url", "uploaded_at"])
     res.append(r.smembers(_pendingFace(user_id)))
     return res
+
+def get_pending_login_session(user_id: str):
+    r = _get_client()
+
+    return r.hmget(_userKey(user_id), ["login_session"])
 
 def put_user_similarity_resp(now:int, user_id: str, code: int, resp: bytes):
     r = _get_client()
