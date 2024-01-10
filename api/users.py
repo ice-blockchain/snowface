@@ -238,14 +238,15 @@ def rollback_manual_review(user_id: str):
 def allocate_review_user(admin_id: str):
     r = _get_client()
     user_id = r.get(f"user_pending_duplicate_review_{admin_id}")
+    review_queue_len = r.scard("users_pending_duplicate_review")
     if user_id and len(user_id):
-        return str(user_id,encoding = "utf-8")
+        return str(user_id,encoding = "utf-8"), int(review_queue_len)
     user_id = r.spop("users_pending_duplicate_review")
     if user_id:
         user_id = str(user_id, encoding = "utf-8")
         r.set(f"user_pending_duplicate_review_{admin_id}", user_id)
-        return user_id
-    return None
+        return user_id, int(review_queue_len)-1
+    return None, 0
 def user_reviewed(admin_id: str, user_id: str, retry = False):
     r = _get_client()
     with r.pipeline(transaction=True) as p:

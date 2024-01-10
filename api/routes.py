@@ -436,7 +436,7 @@ def review_duplicates(current_user: Token):
     if (decision and not user_id) or (user_id and not decision):
         return {"message":f"to make a decision you must provide both userId and decision"},422
     try:
-        next_user_for_review = service.review_duplicates(current_user, user_id, decision, most_similar_duplicate)
+        next_user_for_review, users_in_queue = service.review_duplicates(current_user, user_id, decision, most_similar_duplicate)
     except UnauthorizedFromWebhook as e:
         return str(e), 401
     except exceptions.NoDataException as e:
@@ -452,6 +452,7 @@ def review_duplicates(current_user: Token):
         return {"message": str(e)}, 500
     if next_user_for_review:
         return {
+            "reviewQueue": users_in_queue,
             "userId": next_user_for_review.user_id,
             "selfie": str(base64.b64encode(next_user_for_review.primary_photo),encoding = "utf-8"),
             "retries" : next_user_for_review.retries,
