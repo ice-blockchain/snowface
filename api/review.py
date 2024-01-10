@@ -115,14 +115,14 @@ def make_decision(now: int, admin_current_user: Token, user_id:str, decision: st
 
 
 def next_user_for_review(admin_id):
-    user_id = _allocate_review_user(admin_id)
+    user_id, review_queue_len = _allocate_review_user(admin_id)
     if user_id:
         user = _get_user(user_id)
         selfie = _get_review_photo(user_id)
         if not user:
             user = {"user_id": user_id}
-        return UserForReview(user,primary_photo=selfie, possible_duplicates = [d for id in user.get("possible_duplicate_with",[]) if (d:= fetch_duplicate(id)) is not None] )
-    return None
+        return UserForReview(user,primary_photo=selfie, possible_duplicates = [d for id in user.get("possible_duplicate_with",[]) if (d:= fetch_duplicate(id)) is not None] ), review_queue_len
+    return None, 0
 
 def fetch_duplicate(user_id):
     photo = _get_primary_photo(user_id)
