@@ -23,9 +23,10 @@ class Token:
     language: str
     device_unique_id: str
     phone_number_migration: bool
+    send_email_magic_link: bool
     _provider: str
 
-    def __init__(self, token, user_id: str, email: str, role: str, provider: str, device_unique_id = "", language = "", phone_number_migration = False):
+    def __init__(self, token, user_id: str, email: str, role: str, provider: str, device_unique_id = "", language = "", phone_number_migration = False, send_email_magic_link = False):
         self.raw_token = token
         self.user_id = user_id
         self.email = email
@@ -36,6 +37,7 @@ class Token:
         self.device_unique_id = device_unique_id
         self.language = language
         self.phone_number_migration = phone_number_migration
+        self.send_email_magic_link = send_email_magic_link
 
     def isICE(self):
         return self._provider == "ice"
@@ -50,6 +52,7 @@ def wrapped_auth_required(allow_migrate_phone_number_to_email = False):
                 device_unique_id = ""
                 email = ""
                 user_id = request.view_args.get("user_id","")
+                send_email_magic_link = False
 
                 if "X-Migrate-Phone-Number-Language" in request.headers:
                     language = request.headers["X-Migrate-Phone-Number-Language"]
@@ -57,8 +60,20 @@ def wrapped_auth_required(allow_migrate_phone_number_to_email = False):
                     device_unique_id = request.headers["X-Migrate-Phone-Number-Device-Unique-Id"]
                 if "X-Migrate-Phone-Number-Email" in request.headers:
                     email = request.headers["X-Migrate-Phone-Number-Email"]
+                if request.headers and "X-Send-Email-Magic-Link" in request.headers:
+                    send_email_magic_link = True
 
-                user = Token(None, user_id=user_id, email=email, device_unique_id=device_unique_id, phone_number_migration=True, language=language, role='', provider='')
+                user = Token(
+                    token=None,
+                    user_id=user_id,
+                    email=email,
+                    role='',
+                    provider='',
+                    device_unique_id=device_unique_id,
+                    language=language,
+                    phone_number_migration=True,
+                    send_email_magic_link=send_email_magic_link
+                )
 
                 return f(user, *args, **kwargs)
 

@@ -40,9 +40,7 @@ from users import (
     get_user_similarity_resp                   as _get_user_similarity_resp,
     put_user_similarity_resp                   as _put_user_similarity_resp,
     update_secondary_metadata_pending          as _update_secondary_metadata_pending,
-    update_login_session_pending               as _update_login_session_pending,
-    get_pending_face                           as _get_pending_face,
-    get_pending_login_session                  as _get_pending_login_session
+    get_pending_face                           as _get_pending_face
 )
 import review, primary_photo
 
@@ -313,14 +311,9 @@ def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_
 
                 raise e # goes to 5xx
 
-            return bestIndex, euclidian, upd["uploaded_at"], None
-    else:
-        login_session = callback_migrate_phone_login(current_user=current_user, user_id=user_id)
+            return bestIndex, euclidian, upd["uploaded_at"]
 
-        if login_session is not None:
-            _update_login_session_pending(user_id, login_session)
-
-        return bestIndex, euclidian, None, login_session
+    return bestIndex, euclidian, None
 
 def recheck_similarity_using_sface(primary_md, user_id: str, pics: list, sface_metadatas: list, bestNotFittingIndex: int):
     secondary_md = _get_secondary_metadata(user_id, model=_model)
@@ -680,6 +673,32 @@ def check_emotions_similarity(usr, current_user, migrate_phone_login):
         )
     ]
 
+def _send_magic_link(user_id, current_user):
+    similarity_server = current_app.config['SIMILARITY_SERVER']
+    headers = {
+                "X-Migrate-Phone-Number-To-Email": "true",
+                "X-Migrate-Phone-Number-Language": current_user.language,
+                "X-Migrate-Phone-Number-Device-Unique-Id": current_user.device_unique_id,
+                "X-Migrate-Phone-Number-Email": current_user.email,
+                "X-Send-Email-Magic-Link": "true"
+            }
+    response = requests.post(
+            url=f"{similarity_server[:-1] if similarity_server.endswith('/') else similarity_server}/v1w/face-auth/similarity/{user_id}",
+            headers=headers,
+            timeout=25
+        )
+
+    if response.status_code == 400:
+        raise MigratePhoneLoginWebhookBadRequest(response.content)
+    elif response.status_code == 409:
+        raise MigratePhoneLoginWebhookConflict(response.content)
+    elif response.status_code == 429:
+        raise MigratePhoneLoginWebhookRateLimit(response.content)
+    elif response.status_code != 200:
+        raise Exception()
+
+    return response.content.decode("utf-8")
+
 def _finish_session(usr, current_user, migrate_phone_login):
     #identity_match = _send_best_images(current_app.config['SIMILARITY_SERVER'], token,usr['user_id'], files)
     login_session = None
@@ -698,29 +717,13 @@ def _finish_session(usr, current_user, migrate_phone_login):
         if body["code"] == _user_not_the_same:
             identity_match = False
 
-        if migrate_phone_login and body["code"] == _invalid_properties:
-            raise MigratePhoneLoginWebhookBadRequest(body["message"])
-
-    if migrate_phone_login and not identity_match and int(similarity_code) == 409:
-        body = json.loads(similarity_resp)
-        if body["code"] == _conflict_with_another_user:
-            raise MigratePhoneLoginWebhookConflict(body["message"])
-
-    if migrate_phone_login and not identity_match and int(similarity_code) == 429:
-        body = json.loads(similarity_resp)
-        if body["code"] == _too_many_requests:
-            raise MigratePhoneLoginWebhookRateLimit(body["message"])
-
     if identity_match:
         if not migrate_phone_login:
             url, uploadedat, face = _get_pending_face(usr['user_id'])
             if url is not None and uploadedat is not None and face is not None:
                 _update_secondary_metadata(int(uploadedat),usr['user_id'], [float(x) for x in face], str(url), _model)
         else:
-            pending = _get_pending_login_session(usr['user_id'])
-
-            if pending is not None and len(pending) > 0:
-                login_session = pending[0].decode("utf-8")
+            login_session = _send_magic_link(usr['user_id'], current_user)
 
         _remove_user_images(user_id=usr['user_id'])
         _remove_session(usr['user_id'])
