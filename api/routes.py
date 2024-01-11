@@ -154,9 +154,28 @@ def analyze():
 @wrapped_auth_required(allow_migrate_phone_number_to_email=True)
 def similar(current_user, user_id):
     with REQUEST_TIME.labels(path="/v1w/face-auth/similarity").time():
-        if current_user.phone_number_migration:
+        if current_user.phone_number_migration and current_user.send_email_magic_link:
             if current_user.email == "" or current_user.language == "" or current_user.device_unique_id == "":
                 return {"message": "not enough params in the request", 'code': _invalid_properties}, 400
+
+            try:
+                return service.callback_migrate_phone_login(current_user, user_id)
+            except MigratePhoneLoginWebhookBadRequest as e:
+                _log_error(current_user, e)
+
+                return {'message': str(e), 'code': _invalid_properties}, 400
+            except MigratePhoneLoginWebhookConflict as e:
+                _log_error(current_user, e)
+
+                return {'message': str(e), 'code': _conflict_with_another_user}, 409
+            except MigratePhoneLoginWebhookRateLimit as e:
+                _log_error(current_user, e)
+
+                return {'message': str(e), 'code': _too_many_requests}, 429
+            except Exception as e:
+                _log_error(current_user, e, True)
+
+                return {"message":"oops, an error occured"}, 500
 
         for img in request.files.getlist("image"):
             if _allowed_file_format(img.filename) is False:
@@ -164,9 +183,9 @@ def similar(current_user, user_id):
 
         try:
             emotion_session_id = request.args.get("sessionId")
-            bestIndex, euclidian, updateTime, login_session = service.check_similarity_and_update_secondary_photo(current_user, user_id, request.files.getlist("image"), current_user.phone_number_migration, emotion_session_id)
+            bestIndex, euclidian, updateTime = service.check_similarity_and_update_secondary_photo(current_user, user_id, request.files.getlist("image"), current_user.phone_number_migration, emotion_session_id)
 
-            return  {"userId":user_id, "bestIndex":bestIndex, "distance": euclidian, "secondaryPhotoUpdatedAt":updateTime, "loginSession": login_session}
+            return {"userId":user_id, "bestIndex":bestIndex, "distance": euclidian, "secondaryPhotoUpdatedAt":updateTime}
         except exceptions.MetadataNotFound as e:
             _log_error(current_user, e)
 
@@ -179,20 +198,8 @@ def similar(current_user, user_id):
             _log_error(current_user, e)
 
             return {"message": str(e), "code":_no_faces}, 400
-        except MigratePhoneLoginWebhookBadRequest as e:
-            _log_error(current_user, e)
-
-            return {'message': str(e), 'code': _invalid_properties}, 400
         except webhook.UnauthorizedFromWebhook as e:
             return str(e), 401
-        except MigratePhoneLoginWebhookConflict as e:
-            _log_error(current_user, e)
-
-            return {'message': str(e), 'code': _conflict_with_another_user}, 409
-        except MigratePhoneLoginWebhookRateLimit as e:
-            _log_error(current_user, e)
-
-            return {'message': str(e), 'code': _too_many_requests}, 429
         except Exception as e:
             _log_error(current_user, e, True)
 
