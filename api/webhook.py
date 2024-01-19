@@ -7,7 +7,7 @@ def _check_status_code(r):
     if r is None or r.response is None:
         return False
 
-    return r.response.status_code == 401
+    return r.response.status_code == 401 or r.response.status_code == 404
 
 def _log(r):
     e = r["exception"]
