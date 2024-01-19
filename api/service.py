@@ -761,6 +761,7 @@ def process_images(current_user, user_id: str, session_id: str, images:list, mig
         return False, False, usr['emotions'], None
 
     model = DeepFace.build_model("Emotion")
+    tpredict = time.time()
     try:
         awaited_score, scores, max_emotion, max_score, averages = _predict(
             usr=usr,
@@ -784,7 +785,7 @@ def process_images(current_user, user_id: str, session_id: str, images:list, mig
         raise e
 
     relative_score = awaited_score*100.0/max_score
-    logging.info(f"[U:{user_id}][S:{session_id}] awaited {current_emotion}/{awaited_score} it is {relative_score} of ({max_emotion}/{max_score}=100)  < {current_app.config['TARGET_EMOTION_SCORE']} all:{averages}")
+    logging.info(f"[U:{user_id}][S:{session_id}] awaited {current_emotion}/{awaited_score} it is {relative_score} of ({max_emotion}/{max_score}=100)  < {current_app.config['TARGET_EMOTION_SCORE']} all:{averages}, took {time.time() - tpredict}")
     if relative_score < current_app.config['TARGET_EMOTION_SCORE']:
         metrics.register_emotion_failure(model,current_emotion,scores, averages)
         usr['emotion_sequence'] = usr['emotion_sequence']+1
