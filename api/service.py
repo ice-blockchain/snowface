@@ -636,7 +636,7 @@ def _send_best_images(similarity_server:str, current_user, user_id, files, emoti
             url=f"{similarity_server[:-1] if similarity_server.endswith('/') else similarity_server}/v1w/face-auth/similarity/{user_id}?sessionId={emotion_session_id}",
             files=files,
             headers=headers,
-            timeout=25
+            timeout=15
         )
     except Exception as e:
         logging.warning(f"Similarity check userID {user_id}: {str(e)}")
