@@ -36,9 +36,11 @@ class HSEmotionRecognizer:
         if ort.get_device() == "GPU":
             # sessOptions = ort.SessionOptions()
             # sessOptions.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
-            self.ort_session = ort.InferenceSession(path,providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
+            #self.ort_session = ort.InferenceSession(path,providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
+            self.ort_session = ort.InferenceSession(path,providers=['CUDAExecutionProvider'])
         else:
-            self.ort_session = ort.InferenceSession(path,providers=['CPUExecutionProvider'])
+            raise Exception("Failed to init GPU")
+        #    self.ort_session = ort.InferenceSession(path,providers=['CPUExecutionProvider'])
 
     def preprocess(self, img):
         x=cv2.resize(img,(self.img_size,self.img_size))/255
