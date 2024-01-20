@@ -16,11 +16,13 @@ import os
 from flask_executor import Executor
 from deepface.commons.distance import findThreshold
 executor = None
+logging.basicConfig(level=os.environ.get('LOGGING_LEVEL','INFO'), format="%(asctime)s.%(msecs)d %(levelname)s:%(name)s:PID:%(process)d %(message)s")
 
 def create_app():
     app = Flask(__name__)
     app.register_blueprint(blueprint)
     executor = Executor(app, "snowface")
+    executor.EXECUTOR_MAX_WORKERS = 256
     app.config['LOGGING_LEVEL'] = os.environ.get('LOGGING_LEVEL','INFO')
     logging.basicConfig(level=app.config['LOGGING_LEVEL'], format="%(asctime)s.%(msecs)d %(levelname)s:%(name)s:PID:%(process)d %(message)s")
     jwt_secret = os.environ.get('JWT_SECRET')
