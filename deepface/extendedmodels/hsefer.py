@@ -32,15 +32,13 @@ class HSEmotionRecognizer:
             self.idx_to_class={0: 'anger', 1: 'contempt', 2: 'disgust', 3: 'fear', 4: 'happiness', 5: 'neutral', 6: 'sadness', 7: 'surprise'}
         self.class_to_idx = {v: k for k, v in self.idx_to_class.items()}
         self.img_size=224 if '_b0_' in model_name else 260
-        print("ORT device:", ort.get_device(), "OpenCV:", cv2.cuda.getCudaEnabledDeviceCount())
+        logging.warning(f"ORT device: {ort.get_device()}, OpenCV: {cv2.cuda.getCudaEnabledDeviceCount()}")
         if ort.get_device() == "GPU":
             # sessOptions = ort.SessionOptions()
             # sessOptions.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
-            #self.ort_session = ort.InferenceSession(path,providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
             self.ort_session = ort.InferenceSession(path,providers=['CUDAExecutionProvider'])
         else:
-            raise Exception("Failed to init GPU")
-        #    self.ort_session = ort.InferenceSession(path,providers=['CPUExecutionProvider'])
+            self.ort_session = ort.InferenceSession(path,providers=['CPUExecutionProvider'])
 
     def preprocess(self, img):
         x=cv2.resize(img,(self.img_size,self.img_size))/255
