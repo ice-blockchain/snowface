@@ -880,8 +880,13 @@ def proxy_delete(current_user, user_id = ""):
 
     response = requests.delete(
         url=url,
-        headers={"Authorization": f"Bearer {current_user.raw_token}", "X-Account-Metadata": current_user.metadata},
-        json=payload
+        headers={
+                 "Authorization": f"Bearer {current_user.raw_token}",
+                 "X-Account-Metadata": current_user.metadata,
+                 "x-queued-time": str(float(time.time()))},
+        json=payload,
+        timeout=5,
+
     )
 
     return response.content, response.status_code
