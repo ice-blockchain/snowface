@@ -135,10 +135,12 @@ def analyze(img_path, actions, detector_backend, enforce_detection, align):
 def init_models():
     if current_app.config["MINIO_URI"]:
         DeepFace.build_model(_model_fallback)
+    logging.warning(f"building emotion model PID:{os.getpid()}")
     emotion = DeepFace.build_model("Emotion")
+    logging.warning(f"emotion model built PID:{os.getpid()}")
     try:
         samplePerson = requests.get(
-            url="https://thispersondoesnotexist.com/", verify=False
+            url="https://thispersondoesnotexist.com/", verify=False, timeout=10
         )
         if samplePerson.status_code == 200:
             img = loadImageFromStream(io.BytesIO(samplePerson.content))
@@ -146,8 +148,12 @@ def init_models():
                 if current_app.config["MINIO_URI"]:
                     DeepFace.represent(img_path=img, detector_backend=_detector_high_quality, model_name=_model_fallback, enforce_detection=False)
                 else:
+                    logging.warning(f"initing face extractor {_detector_high_quality} PID:{os.getpid()}")
                     DeepFace.extract_faces(img_path=img,detector_backend=_detector_high_quality, enforce_detection=False)
+                    logging.warning(f"face extractor initialized {_detector_high_quality} PID:{os.getpid()}")
+                logging.warning(f"initializing emotion extractor PID:{os.getpid()}")
                 emotion.predict_multi_emotions(face_img_list=[img])
+                logging.warning(f"initialized emotion extractor PID:{os.getpid()}")
     except requests.RequestException as e:
         logging.error(e, exc_info=e)
 
