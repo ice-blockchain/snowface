@@ -874,10 +874,16 @@ def proxy_delete(current_user, user_id = ""):
 
     url = f"{similarity_server[:-1] if similarity_server.endswith('/') else similarity_server}/v1w/face-auth/"
     payload = None
+
     if user_id != "":
         url = f"{url}?userId={user_id}"
         payload = {"userId":user_id}
-
+    if not user_id:
+        user = _get_user(current_user.user_id)
+        if user is None:
+            primary_photo = _get_primary_metadata(user_id,model=_model_fallback, search_growing=False)
+            if not primary_photo:
+                return "", 204
     response = requests.delete(
         url=url,
         headers={
