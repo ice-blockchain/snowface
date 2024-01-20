@@ -85,7 +85,7 @@ def register_primary_photo_uploaded(attempt):
 def primary_photo_to_review():
     _photos_to_review.inc()
 
-def bjorn_request_metrics(f):
+def request_queue_time(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if len(logging.root.handlers) == 0:
