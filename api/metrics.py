@@ -91,12 +91,9 @@ def request_queue_time(f):
         if len(logging.root.handlers) == 0:
             logging.basicConfig(level=os.environ.get('LOGGING_LEVEL','INFO'), format="%(asctime)s.%(msecs)d %(levelname)s:%(name)s:PID:%(process)d %(message)s")
 
-        q_header = [float(h[1]) for h in request.headers if h[0].lower() == "x-queued-time"]
-        queued_time = None
-        if len(q_header) > 0:
-            queued_time = q_header[0]
+        if "x-queued-time" in request.headers:
+            queued_time = float(request.headers["x-queued-time"])
 
-        if queued_time:
             latency = time.time() - queued_time
             userIdIdx = -1
             if "/liveness/" in request.path:
