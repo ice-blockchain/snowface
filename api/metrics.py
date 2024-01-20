@@ -3,6 +3,10 @@ from deepface.extendedmodels.hsefer import HSEmotionRecognizer
 from deepface.DeepFace import set_represent_metric as _set_represent
 import threading
 from flask import current_app
+import time, os
+import logging
+from flask import request
+from functools import wraps
 
 def latest():
     registry = CollectorRegistry()
@@ -80,3 +84,25 @@ def register_primary_photo_uploaded(attempt):
 
 def primary_photo_to_review():
     _photos_to_review.inc()
+
+def bjorn_request_metrics(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if len(logging.root.handlers) == 0:
+            logging.basicConfig(level=os.environ.get('LOGGING_LEVEL','INFO'), format="%(asctime)s.%(msecs)d %(levelname)s:%(name)s:PID:%(process)d %(message)s")
+
+        q_header = [float(h[1]) for h in request.headers if h[0].lower() == "x-queued-time"]
+        queued_time = None
+        if len(q_header) > 0:
+            queued_time = q_header[0]
+
+        if queued_time:
+            latency = time.time() - queued_time
+            userIdIdx = -1
+            if "/liveness/" in request.path:
+                userIdIdx = -2
+            register_gunicorn_latency("/".join(request.path.split("/")[:userIdIdx]), latency)
+
+        return f(*args, **kwargs)
+
+    return decorated

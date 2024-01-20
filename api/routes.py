@@ -11,7 +11,7 @@ from webhook import UnauthorizedFromWebhook, MigratePhoneLoginWebhookBadRequest,
 import logging
 
 from prometheus_client import CONTENT_TYPE_LATEST
-from metrics import latest, REQUEST_TIME
+from metrics import latest, REQUEST_TIME, bjorn_request_metrics
 from flask_httpauth import HTTPBasicAuth
 from faces import ping as milvus_ping
 from users import ping as redis_ping
@@ -151,6 +151,7 @@ def analyze():
     return demographies
 
 @blueprint.route("/v1w/face-auth/similarity/<user_id>", methods=["POST"])
+@bjorn_request_metrics
 @wrapped_auth_required(allow_migrate_phone_number_to_email=True)
 def similar(current_user, user_id):
     with REQUEST_TIME.labels(path="/v1w/face-auth/similarity").time():
@@ -209,6 +210,7 @@ def _log_error(current_user: Token, e: Exception, unexpected = False):
     logging.error(f"[U:{current_user.user_id}] "+str(e), exc_info=e if unexpected else None)
 
 @blueprint.route("/v1w/face-auth/primary_photo/<user_id>", methods=["POST"])
+@bjorn_request_metrics
 @wrapped_auth_required()
 @client_ip
 def primary_photo(current_user,client_ip, user_id):
@@ -260,6 +262,7 @@ def primary_photo(current_user,client_ip, user_id):
             return {"message":"oops, an error occured"}, 500
 
 @blueprint.route("/v1w/face-auth/", methods=["DELETE"])
+@bjorn_request_metrics
 @wrapped_auth_required()
 def delete_photos(current_user: Token):
     with REQUEST_TIME.labels(path="/v1w/face-auth/").time():
@@ -300,6 +303,7 @@ def delete_photos(current_user: Token):
             return {"message":"oops, an error occured"}, 500
 
 @blueprint.route("/v1r/face-auth/status/<user_id>", methods=["GET"])
+@bjorn_request_metrics
 @wrapped_auth_required()
 def user_status(current_user, user_id):
     with REQUEST_TIME.labels(path="/v1w/face-auth/status").time():
@@ -313,6 +317,7 @@ def user_status(current_user, user_id):
             return {"message":"oops, an error occured"}, 500
 
 @blueprint.route("/v1w/face-auth/emotions/<user_id>", methods=["POST"])
+@bjorn_request_metrics
 @wrapped_auth_required(allow_migrate_phone_number_to_email=True)
 def emotions(current_user, user_id):
     with REQUEST_TIME.labels(path="/v1w/face-auth/emotions").time():
@@ -338,6 +343,7 @@ def emotions(current_user, user_id):
             return {"message":"oops, an error occured"}, 500
 
 @blueprint.route("/v1w/face-auth/liveness/<user_id>/<session_id>", methods=["POST"])
+@bjorn_request_metrics
 @wrapped_auth_required(allow_migrate_phone_number_to_email=True)
 def liveness(current_user, user_id, session_id):
     with REQUEST_TIME.labels(path="/v1w/face-auth/liveness").time():
@@ -405,6 +411,7 @@ def liveness(current_user, user_id, session_id):
             return {"message":"oops, an error occured"}, 500
 
 @blueprint.route("/v1w/face-auth/enable", methods=["POST"])
+@bjorn_request_metrics
 @wrapped_auth_required()
 def enable_user(current_user: Token):
     if current_user.role != "admin":
@@ -431,6 +438,7 @@ def enable_user(current_user: Token):
         return {"message": str(e)}, 500
 
 @blueprint.route("/v1w/face-auth/primary_photo/review_duplicates", methods = ["POST"])
+@bjorn_request_metrics
 @wrapped_auth_required()
 def review_duplicates(current_user: Token):
     if current_user.role != "admin":
