@@ -881,7 +881,7 @@ def proxy_delete(current_user, user_id = ""):
     if not user_id:
         user = _get_user(current_user.user_id)
         if user is None:
-            primary_photo = _get_primary_metadata(user_id,model=_model_fallback, search_growing=False)
+            primary_photo = _get_primary_metadata(current_user.user_id,model=_model_fallback, search_growing=False)
             if not primary_photo:
                 return "", 204
     response = requests.delete(
