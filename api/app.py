@@ -92,10 +92,14 @@ def create_app():
 def when_ready(app):
     if app.config["MINIO_URI"]:
         time.sleep(random.randint(1,int(os.environ.get("DISTRIBUTE_WORKERS_TIME",120))))
+    logging.warning(f"initing milvus: PID:{os.getpid()}")
     init_milvus()
+    logging.warning(f"initing redis PID:{os.getpid()}")
     init_redis()
+    logging.warning(f"initing firebase PID:{os.getpid()}")
     _get_firebase_client()
     if app.config['MINIO_URI']:
+        logging.warning(f"initing minio PID:{os.getpid()}")
         _client_with_initialized_bucket()
     init_models()
     if os.environ.get('MINIO_URI'):

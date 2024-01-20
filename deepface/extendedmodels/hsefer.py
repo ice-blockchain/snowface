@@ -36,7 +36,7 @@ class HSEmotionRecognizer:
         if ort.get_device() == "GPU":
             # sessOptions = ort.SessionOptions()
             # sessOptions.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
-            self.ort_session = ort.InferenceSession(path,providers=['CUDAExecutionProvider'])
+            self.ort_session = ort.InferenceSession(path,providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
         else:
             self.ort_session = ort.InferenceSession(path,providers=['CPUExecutionProvider'])
 
