@@ -904,8 +904,10 @@ def emotions_cleanup():
     logging.info(f"cleaning outdated sessions ({len(sessions)})...")
 
     for session in sessions:
-        _remove_user_images(session)
-
+        try:
+            _remove_user_images(session)
+        except OSError as e:
+            logging.warning(str(e))
 def reenable_user(current_user, user_id: str, duplicated_face: str):
     primary = _get_primary_metadata(user_id, model = _model_fallback, search_growing = False)
     secondary = _get_secondary_metadata(user_id, model=_model)
