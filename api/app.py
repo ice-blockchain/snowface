@@ -10,14 +10,18 @@ from faces import init_milvus, close_milvus, _default_user, _default_password
 from users import _get_client as init_redis
 from auth import _get_firebase_client
 from minio_uploader import _client_with_initialized_bucket
-from service import init_models, _model, _model_fallback, _similarity_metric, _default_session_duration, start_wrongfully_disabled_users_worker
+from service import init_models, _model, _model_fallback, _similarity_metric, _default_session_duration, start_wrongfully_disabled_users_worker, emotions_cleanup
 from routes import init_rate_limiters
 import os
 from flask_executor import Executor
 from deepface.commons.distance import findThreshold
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.events import EVENT_SCHEDULER_SHUTDOWN
+from apscheduler.jobstores.redis import RedisJobStore
+from redis.connection import parse_url
 executor = None
 logging.basicConfig(level=os.environ.get('LOGGING_LEVEL','INFO'), format="%(asctime)s.%(msecs)d %(levelname)s:%(name)s:PID:%(process)d %(message)s")
-
+scheduler = None
 def create_app():
     app = Flask(__name__)
     app.register_blueprint(blueprint)
@@ -104,9 +108,30 @@ def when_ready(app):
     init_models()
     if os.environ.get('MINIO_URI'):
         start_wrongfully_disabled_users_worker()
+    if os.environ.get('IMG_STORAGE_PATH'):
+        start_emotion_photo_cleaner()
+
 
 def on_exit(arbiter):
     close_milvus()
+
+def start_emotion_photo_cleaner():
+    global scheduler
+    redisStore = RedisJobStore(**parse_url(os.environ.get("REDIS_URI")))
+    if not scheduler:
+        scheduler = BackgroundScheduler(jobstores={
+            'default': redisStore
+        })
+    if scheduler and not scheduler.running:
+        scheduler.start()
+        if not scheduler.get_job("emotions_cleanup"):
+            scheduler.add_job(
+                id = "emotions_cleanup",
+                func=emotions_cleanup,
+                trigger="interval", seconds = 60,
+                max_instances=1
+            )
+
 
 if __name__ == '__main__':
     from dotenv import load_dotenv

@@ -23,16 +23,5 @@ def pre_request(worker, request):
             userIdIdx = -2
         metrics.register_gunicorn_latency("/".join(request.path.split("/")[:userIdIdx]), latency)
 
-scheduler = BackgroundScheduler()
-def when_ready(server):
-    global scheduler
-    if os.environ.get('IMG_STORAGE_PATH'):
-        scheduler.add_job(
-            id = "emotions_cleanup",
-            func=emotions_cleanup,
-            trigger="interval", seconds = 60,
-        )
-        scheduler.start()
-
 def on_starting(server):
     clean_wrongfully_disabled_users_workers()
