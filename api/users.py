@@ -16,6 +16,8 @@ def _userKey(userId: str):
     return "users:"+userId
 def _pendingFace(userId: str):
     return "pendingFace:"+userId
+def _reviewMetadata(userId: str):
+    return "reviewMetadata:"+userId
 
 def _expirationKey(session_started_at: int, duration: int):
     session_idx = int(session_started_at / duration)
@@ -145,6 +147,8 @@ def get_user(user_id: str, search_growing = True):
 
     return res
 
+
+
 def get_expired_sessions(now, duration):
     r = _get_client()
     expired_users = r.hgetall(_expirationKey(now-duration, duration)).keys()
@@ -219,15 +223,23 @@ def clean_wrongfully_disabled_users_workers():
     r = _get_client()
     r.delete("wrongfully_disabled_users_workers",1)
 
-def mark_user_for_manual_review(user_id: str, ip: str, similar_users: List[str], duplicate_review_count: int):
+def mark_user_for_manual_review(user_id: str, ip: str, similar_users: List[str], duplicate_review_count: int, metadata):
     r = _get_client()
-    if r.hset(_userKey(user_id),mapping = {
-        "ip":ip,
-        "possible_duplicate_with": ",".join(similar_users),
-        "duplicate_review_count": duplicate_review_count
-    }) > 0:
-        return r.sadd("users_pending_duplicate_review", user_id) > 0
+    with r.pipeline(transaction=True) as p:
+        r.delete(_reviewMetadata(user_id))
+        r.rpush(_reviewMetadata(user_id), *metadata)
+        if r.hset(_userKey(user_id),mapping = {
+            "ip":ip,
+            "possible_duplicate_with": ",".join(similar_users),
+            "duplicate_review_count": duplicate_review_count
+        }) > 0:
+            r.sadd("users_pending_duplicate_review", user_id)
+        p.execute()
     return False
+
+def get_face_metadata_pending_review(user_id: str):
+    r = _get_client()
+    return r.lrange(_reviewMetadata(user_id), 0, -1)
 def rollback_manual_review(user_id: str):
     r = _get_client()
     print("rollback")
@@ -256,6 +268,7 @@ def user_reviewed(admin_id: str, user_id: str, retry = False):
             p.hdel(_userKey(user_id),"duplicate_review_count")
         p.hdel(_userKey(user_id),"possible_duplicate_with","ip")
         p.delete(f"user_pending_duplicate_review_{admin_id}")
+        p.delete(_reviewMetadata(user_id))
         p.execute()
 def pop_possible_duplicate_with(user_id, user, most_similar_user_id):
     r = _get_client()
@@ -267,11 +280,12 @@ def pop_possible_duplicate_with(user_id, user, most_similar_user_id):
     user["possible_duplicate_with"] = dupls
     r.hset(_userKey(user_id), mapping = {"possible_duplicate_with":",".join(dupls)})
     return user
-def rollback_pop_possible_duplicate_with(user_id, user, most_similar_user_id):
+def add_possible_duplicate_with(user_id, user, most_similar_user_ids):
     r = _get_client()
     dupls = user.get("possible_duplicate_with", [])
-    if not most_similar_user_id in dupls:
-        dupls.append(most_similar_user_id)
+    diff = set(most_similar_user_ids)-set(dupls)
+    if len(diff) > 0:
+        dupls.extend(diff)
     else:
         return user
     user["possible_duplicate_with"] = dupls

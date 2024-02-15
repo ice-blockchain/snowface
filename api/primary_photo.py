@@ -88,7 +88,7 @@ def _disable_user(now, user_id, photo_content):
 
     return db_disable_user(now,user_id)
 
-def extract_metadatas(user_id, photo_stream):
+def extract_metadatas(user_id, photo_stream, calc_arcface = True):
     try:
         img_objs, resp_objs = DeepFace.extract_faces_custom(
             img_path=loadImageFromStream(photo_stream),
@@ -98,13 +98,15 @@ def extract_metadatas(user_id, photo_stream):
     except ValueError:
         raise exceptions.NoFaces(f"No faces detected, userId: {user_id}")
     img_to_represent = resp_objs[0]['face']
-    md = distance.l2_normalize(DeepFace.represent(
-        img_path=img_to_represent,
-        model_name=_model_fallback,
-        detector_backend="skip",
-        normalization="base",
-        target_size=(112, 112),
-    )[0]["embedding"])
+    md = None
+    if calc_arcface:
+        md = distance.l2_normalize(DeepFace.represent(
+            img_path=img_to_represent,
+            model_name=_model_fallback,
+            detector_backend="skip",
+            normalization="base",
+            target_size=(112, 112),
+        )[0]["embedding"])
     sface_md = distance.l2_normalize(DeepFace.represent(
         img_path=img_to_represent,
         model_name=_model,

@@ -9,7 +9,8 @@ from users import (
     allocate_review_user as _allocate_review_user,
     rollback_manual_review as _rollback_manual_review,
     pop_possible_duplicate_with as _pop_possible_duplicate_with,
-    rollback_pop_possible_duplicate_with as _rollback_pop_possible_duplicate_with,
+    add_possible_duplicate_with as _add_possible_duplicate_with,
+    get_face_metadata_pending_review as _get_face_metadata_pending_review
 )
 from minio_uploader import (
     put_review_photo as _put_review_photo,
@@ -22,7 +23,7 @@ import primary_photo
 from auth import Token
 import exceptions
 import metrics
-
+from faces import _faces_count_to_search_for, find_similar_users
 class UserForReview:
     def __init__(self, user, primary_photo, possible_duplicates):
         self.user_id = user.get("user_id")
@@ -36,9 +37,9 @@ class Duplicate:
         self.user_id = user_id
         self.primary_photo = primary_photo
 
-def primary_photo_to_review(now, current_user, user_id, user, photo_stream, similar_users, ip, e):
+def primary_photo_to_review(now, current_user, user_id, user, photo_stream,metadata, similar_users, ip, e):
     logging.info(f"Face {user_id}  is matching with user {similar_users[0]}, user is forwarded to manual review: distance {e.sface_distance} < {current_app.config['PRIMARY_PHOTO_SFACE_DISTANCE']}, {e.arface_distance} < {current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']}")
-    _mark_user_for_manual_review(user_id,ip,similar_users,user.get("duplicate_review_count",0))
+    _mark_user_for_manual_review(user_id,ip,similar_users,user.get("duplicate_review_count",0), metadata)
     _put_review_photo(user_id,photo_stream)
     metrics.primary_photo_to_review()
     try:
@@ -101,9 +102,15 @@ def make_decision(now: int, admin_current_user: Token, user_id:str, decision: st
         _user_reviewed(admin_id=admin_current_user.user_id,user_id=user_id,retry=True)
         primary_photo.delete_user_photos_and_metadata(current_user=admin_current_user,to_delete_user_id=user_id, keep_retries=True)
     elif decision == "not_duplicate":
-        _user_reviewed(admin_id=admin_current_user.user_id,user_id=user_id,retry=False)
         try:
-            _, md, sface_md = primary_photo.extract_metadatas(user_id,io.BytesIO(photo))
+            sface_md = None
+            md = _get_face_metadata_pending_review(user_id)
+            if not md:
+                _, md, sface_md = primary_photo.extract_metadatas(user_id,io.BytesIO(photo))
+            if sface_md is None:
+                _,_, sface_md = primary_photo.extract_metadatas(user_id,io.BytesIO(photo),calc_arcface=False)
+            md = [float(x) for x in md]
+            _user_reviewed(admin_id=admin_current_user.user_id,user_id=user_id,retry=False)
             primary_photo.primary_photo_passed(now, admin_current_user, user_id,user, io.BytesIO(photo), sface_md, md, -1, admin_perm_user_id=user_id)
             _delete_review_photo(user_id)
         except Exception as e:
@@ -116,16 +123,36 @@ def make_decision(now: int, admin_current_user: Token, user_id:str, decision: st
 
 def next_user_for_review(admin_id):
     user_id, review_queue_len = _allocate_review_user(admin_id)
+    d = []
     if user_id:
         user = _get_user(user_id)
         selfie = _get_review_photo(user_id)
         if not user:
             user = {"user_id": user_id}
-        return UserForReview(user,primary_photo=selfie, possible_duplicates = [d for id in user.get("possible_duplicate_with",[]) if (d:= fetch_duplicate(id)) is not None] ), review_queue_len
+        if not selfie:
+            primary = _get_primary_photo(user_id)
+            if primary:
+                _user_reviewed(admin_id,user_id, False)
+                return next_user_for_review(admin_id)
+        duplicates = [d for id in user.get("possible_duplicate_with",[]) if (d:= fetch_duplicate(id)) is not None]
+        if len(duplicates) == 0:
+            threshold = current_app.config['PRIMARY_PHOTO_ARCFACE_DISTANCE']
+            md = _get_face_metadata_pending_review(user_id)
+            if not md:
+                _, md, sface_md = primary_photo.extract_metadatas(user_id,io.BytesIO(selfie))
+            md = [float(x) for x in md]
+            extra_users, extra_distances = find_similar_users(user_id, md, threshold)
+            if user_id in extra_users: extra_users.remove(user_id)
+            duplicates.extend([d for id in extra_users if (d:= fetch_duplicate(id)) is not None and not id in user.get("possible_duplicate_with",[])])
+            _add_possible_duplicate_with(user_id, user, extra_users)
+        return UserForReview(user,primary_photo=selfie, possible_duplicates = duplicates ), review_queue_len
     return None, 0
 
 def fetch_duplicate(user_id):
     photo = _get_primary_photo(user_id)
     if photo is None:
+        return None
+    user = _get_user(user_id)
+    if user is not None and user.get("disabled_at",0) > 0:
         return None
     return Duplicate(user_id, photo)

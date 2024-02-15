@@ -40,7 +40,8 @@ from users import (
     get_user_similarity_resp                   as _get_user_similarity_resp,
     put_user_similarity_resp                   as _put_user_similarity_resp,
     update_secondary_metadata_pending          as _update_secondary_metadata_pending,
-    get_pending_face                           as _get_pending_face
+    get_pending_face                           as _get_pending_face,
+    add_possible_duplicate_with                as _add_possible_duplicate_with
 )
 import review, primary_photo
 
@@ -267,7 +268,7 @@ def set_primary_photo(current_user, client_ip, user_id: str, photo_stream):
             if _is_review_disabled():
                 primary_photo.primary_photo_declined(e, now, current_user, current_user.user_id, photo_stream.stream)
             else:
-                review.primary_photo_to_review(now, current_user, user_id, user, photo_stream, e.similar_users, client_ip, e)
+                review.primary_photo_to_review(now, current_user, user_id, user, photo_stream, e.arcface_metadata, e.similar_users, client_ip, e)
             return
         raise e
 
