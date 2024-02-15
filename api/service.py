@@ -876,34 +876,42 @@ def delete_temporary_user_data(user_id:str):
 def delete_user_photos_and_metadata(current_user, to_delete_user_id = "", force_user_id = ""):
     primary_photo.delete_user_photos_and_metadata(current_user, to_delete_user_id, force_user_id)
 
-def proxy_delete(current_user, user_id = ""):
-    similarity_server = current_app.config['SIMILARITY_SERVER']
+def proxy_delete_if_not_exists(similarity_server, current_user, user_id = ""):
 
-    url = f"{similarity_server[:-1] if similarity_server.endswith('/') else similarity_server}/v1w/face-auth/"
-    payload = None
-
-    if user_id != "":
-        url = f"{url}?userId={user_id}"
-        payload = {"userId":user_id}
     if not user_id:
         user = _get_user(current_user.user_id)
         if user is None:
             primary_photo = _get_primary_metadata(current_user.user_id,model=_model_fallback, search_growing=False)
             if not primary_photo:
                 return "", 204
+    executor = current_app.extensions["snowfaceexecutor"]
+    futures = [
+        executor.submit(
+            service.proxy_delete,
+            current_app.config['SIMILARITY_SERVER'],
+            current_user, user_id,
+        )
+    ]
+    return "", 200
+
+def proxy_delete(similarity_server, current_user, user_id = ""):
+    url = f"{similarity_server[:-1] if similarity_server.endswith('/') else similarity_server}/v1w/face-auth/"
+    payload = None
+    if user_id != "":
+        url = f"{url}?userId={user_id}"
+        payload = {"userId":user_id}
     response = requests.delete(
         url=url,
         headers={
-                 "Authorization": f"Bearer {current_user.raw_token}",
-                 "X-Account-Metadata": current_user.metadata,
-                 "x-queued-time": str(float(time.time()))},
+            "Authorization": f"Bearer {current_user.raw_token}",
+            "X-Account-Metadata": current_user.metadata,
+            "x-queued-time": str(float(time.time()))},
         json=payload,
         timeout=5
     )
     d, s = response.content, response.status_code
     response.close()
     return d, s
-
 def emotions_cleanup():
     now = time.time_ns()
     duration = int(os.environ.get('SESSION_DURATION', _default_session_duration))*int(1e9)
