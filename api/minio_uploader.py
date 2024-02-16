@@ -121,8 +121,8 @@ def delete_photos(user_id):
     secondary = get_photo(user_id, _picture_secondary)
     folder_obj_name = f"{user_id}"
 
-    errs = client.remove_objects(_bucket_name,[DeleteObject(i.object_name) for i in
-                                               client.list_objects(_bucket_name,prefix=folder_obj_name,recursive=True)]
+    errs = client.remove_objects(_bucket_name,[DeleteObject(f"{folder_obj_name}/{_picture_primary}"),
+                                               DeleteObject(f"{folder_obj_name}/{_picture_secondary}"),]
                                             + [DeleteObject(folder_obj_name)]
                                  )
     list(client.remove_objects(_disabled_users_bucket_name,[DeleteObject(f"{user_id}")]))
