@@ -1,3 +1,6 @@
+import logging
+import time
+
 from users import (
     rollback_disabled_user                    as _rollback_disabled_user,
     disable_user                              as db_disable_user,
@@ -113,6 +116,7 @@ def extract_metadatas(user_id, photo_stream):
 
 
 def delete_user_photos_and_metadata(current_user, to_delete_user_id = "", force_user_id = "", keep_retries = False):
+    t = time.time()
     if to_delete_user_id != "":
         user_id = to_delete_user_id
     elif force_user_id != "":
@@ -121,12 +125,12 @@ def delete_user_photos_and_metadata(current_user, to_delete_user_id = "", force_
         user_id = current_user.user_id
 
     prev_state = _get_user(user_id, search_growing=False)
-
+    main_md, secondary_md, deleted_mds = _delete_metadatas(user_id, [f"{user_id}~0", f"{user_id}~1"])
+    if (main_md is None and secondary_md is None):
+        raise exceptions.MetadataNotFound(f"face metadata for userId {user_id} was not deleted (nothing)")
     main, secondary, errs = _delete_photos(user_id)
     if len(errs) > 0:
         raise Exception(str(errs))
-
-    main_md, secondary_md, deleted_mds = _delete_metadatas(user_id, [f"{user_id}~0", f"{user_id}~1"])
 
     if force_user_id == "":
         _full_user_reset(user_id, prev_state=prev_state if keep_retries else None)
@@ -139,7 +143,7 @@ def delete_user_photos_and_metadata(current_user, to_delete_user_id = "", force_
         callback_user_id = user_id
     else:
         callback_user_id = ""
-
+    logging.info(f"{user_id} del took {time.time() - t}")
     try:
         callback(current_user, None, None, None, user_id = callback_user_id)
     except UnauthorizedFromWebhook as e:
@@ -147,16 +151,15 @@ def delete_user_photos_and_metadata(current_user, to_delete_user_id = "", force_
 
         raise e
     except requests.HTTPError as e:
-        if (e is not None) and (e.response is not None) and e.response.status_code == 404:
-            raise exceptions.MetadataNotFound(f"face metadata for userId {user_id} was not deleted")
         _rollback_deletion(prev_state, user_id, main, secondary, main_md, secondary_md)
-        raise e
+        if (e is not None) and (e.response is not None) and e.response.status_code == 404:
+            raise exceptions.MetadataNotFound(f"face metadata for userId {user_id} was not deleted due to wh err")
     except Exception as e:
         _rollback_deletion(prev_state, user_id, main, secondary, main_md, secondary_md)
 
         raise e # goes to 5xx
     if (deleted_mds == 0 or (main_md is None and secondary_md is None)) and prev_state is None:
-        raise exceptions.MetadataNotFound(f"face metadata for userId {user_id} was not deleted")
+        raise exceptions.MetadataNotFound(f"face metadata for userId {user_id} was not deleted(no data)")
 
 def _rollback_expired(user_id: str, prev_state):
     if prev_state['session_started_at'] is not None:

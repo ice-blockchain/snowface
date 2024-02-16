@@ -156,6 +156,8 @@ def get_secondary_metadata(user_id, model):
         expr = f"user_picture_id == \"{user_id}~{_picture_secondary}\"",
         offset = 0,
         limit = 1,
+        ignore_growing = False,
+        consistency_level = "Bounded",
         output_fields = ["user_id","picture_id","face_metadata","uploaded_at", "url"],
     )
     if len(res) == 0:

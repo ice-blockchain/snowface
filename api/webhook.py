@@ -41,7 +41,7 @@ def _log_migrate_phone_login(r):
                       on_backoff=_log,
                       interval = 0.1,
                       max_tries = 15,
-                      max_time = 49
+                      max_time = 25
                       )
 def callback(current_user, primary_md, secondary_md, user, user_id = "", potentially_duplicate = False):
     time_format = '%Y-%m-%dT%H:%M:%S.%fZ%Z'

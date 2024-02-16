@@ -623,6 +623,7 @@ def _save_image(image, idx, user_id):
         raise e
 
 def _send_best_images(similarity_server:str, current_user, user_id, files, emotion_session_id, migrate_phone_login):
+    response = None
     try:
         t = time.time()
         logging.debug(f"Initiating similarity call for user_id {user_id} S:{emotion_session_id}")
@@ -645,16 +646,20 @@ def _send_best_images(similarity_server:str, current_user, user_id, files, emoti
             timeout=15
         )
     except Exception as e:
+        if response:
+            response.close()
         logging.warning(f"Similarity check userID {user_id}: {str(e)}")
 
         raise e
     logging.debug(f"Similarity e2e took for user_id {user_id} S:{emotion_session_id}: {time.time() - t}")
     _put_user_similarity_resp(time.time_ns(),user_id,response.status_code,response.content)
     if response.status_code == 200:
+        response.close()
         return True
     else:
         logging.warning(f"Similarity check userID {user_id}: {response.status_code} {response.text}")
-        if response.status_code == 400 and response.json()["code"] == _user_not_the_same:
+        if response.status_code == 400 and ["code"] == _user_not_the_same:
+            response.close()
             return False
 
     return True
@@ -703,7 +708,9 @@ def _send_magic_link(user_id, current_user):
     elif response.status_code != 200:
         raise Exception()
 
-    return response.content.decode("utf-8")
+    d = response.content.decode("utf-8")
+    response.close()
+    return d
 
 def _finish_session(usr, current_user, migrate_phone_login):
     #identity_match = _send_best_images(current_app.config['SIMILARITY_SERVER'], token,usr['user_id'], files)
@@ -869,34 +876,42 @@ def delete_temporary_user_data(user_id:str):
 def delete_user_photos_and_metadata(current_user, to_delete_user_id = "", force_user_id = ""):
     primary_photo.delete_user_photos_and_metadata(current_user, to_delete_user_id, force_user_id)
 
-def proxy_delete(current_user, user_id = ""):
-    similarity_server = current_app.config['SIMILARITY_SERVER']
+def proxy_delete_if_not_exists(similarity_server, current_user, user_id = ""):
 
-    url = f"{similarity_server[:-1] if similarity_server.endswith('/') else similarity_server}/v1w/face-auth/"
-    payload = None
-
-    if user_id != "":
-        url = f"{url}?userId={user_id}"
-        payload = {"userId":user_id}
     if not user_id:
         user = _get_user(current_user.user_id)
         if user is None:
             primary_photo = _get_primary_metadata(current_user.user_id,model=_model_fallback, search_growing=False)
             if not primary_photo:
                 return "", 204
+    executor = current_app.extensions["snowfaceexecutor"]
+    futures = [
+        executor.submit(
+            proxy_delete,
+            current_app.config['SIMILARITY_SERVER'],
+            current_user, user_id,
+        )
+    ]
+    return "", 200
+
+def proxy_delete(similarity_server, current_user, user_id = ""):
+    url = f"{similarity_server[:-1] if similarity_server.endswith('/') else similarity_server}/v1w/face-auth/"
+    payload = None
+    if user_id != "":
+        url = f"{url}?userId={user_id}"
+        payload = {"userId":user_id}
     response = requests.delete(
         url=url,
         headers={
-                 "Authorization": f"Bearer {current_user.raw_token}",
-                 "X-Account-Metadata": current_user.metadata,
-                 "x-queued-time": str(float(time.time()))},
+            "Authorization": f"Bearer {current_user.raw_token}",
+            "X-Account-Metadata": current_user.metadata,
+            "x-queued-time": str(float(time.time()))},
         json=payload,
-        timeout=5,
-
+        timeout=5
     )
-
-    return response.content, response.status_code
-
+    d, s = response.content, response.status_code
+    response.close()
+    return d, s
 def emotions_cleanup():
     now = time.time_ns()
     duration = int(os.environ.get('SESSION_DURATION', _default_session_duration))*int(1e9)
