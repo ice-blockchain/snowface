@@ -22,6 +22,8 @@ _default_password = 'Milvus'
 
 _models = ["arcface", "sface"] # first is used for primary photos duplicates detection
 
+_faces_count_to_search_for = 5
+
 def connect_milvus():
     uri = os.environ.get('MILVUS_URI')
     usr = os.environ.get('MILVUS_USER', _default_user)
@@ -175,7 +177,7 @@ def find_similar_users(user_id: str,metadata: list, threshold: float):
             "ignore_growing": False,
             "params": {"ef": 20}
         },
-        limit=5,
+        limit=_faces_count_to_search_for,
         expr = f"picture_id == {_picture_primary}",
         output_fields=['user_id']
     )
