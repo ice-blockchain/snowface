@@ -887,7 +887,7 @@ def proxy_delete_if_not_exists(similarity_server, current_user, user_id = ""):
     executor = current_app.extensions["snowfaceexecutor"]
     futures = [
         executor.submit(
-            service.proxy_delete,
+            proxy_delete,
             current_app.config['SIMILARITY_SERVER'],
             current_user, user_id,
         )

@@ -289,7 +289,7 @@ def delete_photos(current_user: Token):
                     service.delete_temporary_user_data(user_id)
                 else:
                     service.delete_temporary_user_data(current_user.user_id)
-                return service.proxy_delete(current_app.config['SIMILARITY_SERVER'], current_user, user_id)
+                return service.proxy_delete_if_not_exists(current_app.config['SIMILARITY_SERVER'], current_user, user_id)
         except exceptions.MetadataNotFound as e:
             _log_error(current_user, e)
 

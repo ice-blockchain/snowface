@@ -1,3 +1,6 @@
+import logging
+import time
+
 from users import (
     rollback_disabled_user                    as _rollback_disabled_user,
     disable_user                              as db_disable_user,
@@ -113,6 +116,7 @@ def extract_metadatas(user_id, photo_stream):
 
 
 def delete_user_photos_and_metadata(current_user, to_delete_user_id = "", force_user_id = "", keep_retries = False):
+    t = time.time()
     if to_delete_user_id != "":
         user_id = to_delete_user_id
     elif force_user_id != "":
@@ -139,7 +143,7 @@ def delete_user_photos_and_metadata(current_user, to_delete_user_id = "", force_
         callback_user_id = user_id
     else:
         callback_user_id = ""
-
+    logging.info(f"{user_id} del took {time.time() - t}")
     try:
         callback(current_user, None, None, None, user_id = callback_user_id)
     except UnauthorizedFromWebhook as e:
