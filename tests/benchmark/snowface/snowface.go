@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"github.com/google/uuid"
+	"github.com/ice-blockchain/wintr/log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,6 +45,7 @@ func NewBenchmark(host string, routines int, t time.Duration, samples string) *S
 		tel.Register(localTimer, metrics.NewCustomTimer(metrics.NewHistogram(metrics.NewExpDecaySample(reservoirSize, decayAlpha)), metrics.NewMeter())),
 		tel.Register(serverElapledTimeFromResp, metrics.NewCustomTimer(metrics.NewHistogram(metrics.NewExpDecaySample(reservoirSize, decayAlpha)), metrics.NewMeter())),
 		tel.Register(errs, metrics.NewMeter()),
+		tel.Register(similarity, metrics.NewHistogram(metrics.NewExpDecaySample(reservoirSize, decayAlpha))),
 	).ErrorOrNil()
 	if err != nil {
 		panic(err)
@@ -54,7 +57,9 @@ func NewBenchmark(host string, routines int, t time.Duration, samples string) *S
 	b.token = map[int]string{}
 	fmt.Println("Issuing tokens")
 	for i := 0; i < routines; i++ {
-		uID, token := fixture.CreateUser("testing-snowface")
+		uID := uuid.NewString()
+		_, token, err := fixture.GenerateIceTokens(uID, "testing-snowface")
+		log.Panic(err)
 		b.userID[i] = uID
 		b.token[i] = token
 	}
@@ -84,7 +89,7 @@ func (r *SnowfaceBenchmark) loadImages(dir string) {
 }
 
 type benchmarkFunc func(worker int) (any, error)
-type updateFromRespFunc func(resp any)
+type updateFromRespFunc func(resp any, b *SnowfaceBenchmark)
 
 func (r *SnowfaceBenchmark) Benchmark(bench benchmarkFunc, updateFromResp updateFromRespFunc) {
 	ctx, cancel := context.WithTimeout(context.Background(), r.time)
@@ -103,7 +108,7 @@ func (r *SnowfaceBenchmark) Benchmark(bench benchmarkFunc, updateFromResp update
 					r.telemetry.Get(errs).(metrics.Meter).Mark(1)
 				}
 				if res != nil {
-					updateFromResp(res)
+					updateFromResp(res, r)
 				}
 				if bErr != nil {
 					fmt.Println(bErr.Error())

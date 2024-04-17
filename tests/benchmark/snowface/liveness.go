@@ -55,7 +55,7 @@ func (r *SnowfaceBenchmark) Liveness(worker int) (any, error) {
 	return &res, nil
 }
 
-func (r *SnowfaceBenchmark) LivenessParse(resp any) {
+func (r *SnowfaceBenchmark) LivenessParse(resp any, b *SnowfaceBenchmark) {
 
 }
 

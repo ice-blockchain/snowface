@@ -291,7 +291,6 @@ def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_
         if bestIndex == -1:
             metrics.register_similarity_failure(euclidian_sface, euclidian)
             raise exceptions.NotSameUser(f"user mismatch for user_id {user_id}: distance is greater than {sface_threshold} {threshold}: {euclidian_sface} {euclidian}")
-
     if not migrate_phone_login:
         url = put_secondary_photo(user_id,raw_pics[bestIndex].stream)
         if emotionSessionId:
@@ -374,11 +373,27 @@ def extract_and_compare_metadatas(user_reference_metadata: list, pics, model):
     m = DeepFace.build_model(model)
     def predict_pic(p):
         try:
-            p = DeepFace.extract_faces(img_path=p, target_size=(224, 224), detector_backend=_detector_low_quality, align=False)[0]['face']
+            _,f = DeepFace.extract_faces_custom(img_path=p, target_size=(112, 112), detector_backend=_detector_low_quality, align=True)
+            repr = f[0]['face']
         except ValueError as e:
             raise exceptions.NoFaces("No faces detected on metadata comparison")
         with metrics.represent_time.labels(model = model).time():
-            return distance.l2_normalize(m.predict(np.expand_dims(p[::2,::2], axis=0))[0].tolist())
+            return distance.l2_normalize(DeepFace.represent(
+                img_path=repr,
+                model_name=_model,
+                detector_backend="skip",
+                normalization="base",
+                target_size=(112, 112),
+                align=True,
+                enforce_detection = False,
+            )[0]["embedding"])
+        # try:
+        #     _,f = DeepFace.extract_faces_custom(img_path=p, target_size=(112, 112), detector_backend=_detector_low_quality, align=True)
+        #     p = f[0]['face']
+        # except ValueError as e:
+        #     raise exceptions.NoFaces("No faces detected on metadata comparison")
+        # with metrics.represent_time.labels(model = model).time():
+        #     return distance.l2_normalize(m.predict(np.expand_dims(p, axis=0))[0].tolist())
     threshold = _similarity_threshold(model)
     d = threshold + 1
     idx = 0

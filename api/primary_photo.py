@@ -94,6 +94,7 @@ def extract_metadatas(user_id, photo_stream, calc_arcface = True):
             img_path=loadImageFromStream(photo_stream),
             detector_backend=_detector_high_quality,
             align=True,
+            target_size=(112, 112),
             landmarks_verification=True)
     except ValueError:
         raise exceptions.NoFaces(f"No faces detected, userId: {user_id}")
@@ -106,12 +107,14 @@ def extract_metadatas(user_id, photo_stream, calc_arcface = True):
             detector_backend="skip",
             normalization="base",
             target_size=(112, 112),
+            enforce_detection= False,
         )[0]["embedding"])
     sface_md = distance.l2_normalize(DeepFace.represent(
         img_path=img_to_represent,
         model_name=_model,
         detector_backend="skip",
         normalization="base",
+        enforce_detection= False,
         target_size=(112, 112),
     )[0]["embedding"])
     return img_to_represent, md, sface_md

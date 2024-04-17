@@ -43,6 +43,6 @@ func (r *SnowfaceBenchmark) primaryPhoto(worker int, userID, token string, photo
 	return resp.StatusCode, nil
 }
 
-func (r *SnowfaceBenchmark) PrimaryPhotoParse(resp any) {
+func (r *SnowfaceBenchmark) PrimaryPhotoParse(resp any, b *SnowfaceBenchmark) {
 
 }
