@@ -1,0 +1,7 @@
+self:
+  wintr/auth/firebase:
+    allowEmailPassword: true
+  wintr/auth/ice:
+    jwtSecret: bogus
+    refreshExpirationTime: 1h
+    accessExpirationTime: 1h

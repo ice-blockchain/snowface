@@ -310,7 +310,7 @@ def update_secondary_metadata_pending(now: int, user_id:str, metadata: list, url
             "url": url,
         })
         r.delete(_pendingFace(user_id))
-        r.sadd(_pendingFace(user_id), *metadata)
+        r.rpush(_pendingFace(user_id), *metadata)
         p.execute()
     return {
         "user_picture_id": f"{user_id}~2",
@@ -328,7 +328,7 @@ def get_user_similarity_resp(user_id: str):
 def get_pending_face(user_id: str):
     r = _get_client()
     res = r.hmget(_userKey(user_id), ["url", "uploaded_at"])
-    res.append(r.smembers(_pendingFace(user_id)))
+    res.append(r.lrange(_pendingFace(user_id), 0, -1))
     return res
 
 def put_user_similarity_resp(now:int, user_id: str, code: int, resp: bytes):

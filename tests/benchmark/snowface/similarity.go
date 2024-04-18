@@ -3,6 +3,7 @@ package snowface
 import (
 	"fmt"
 	"github.com/pkg/errors"
+	"github.com/rcrowley/go-metrics"
 	"math/rand"
 	"strings"
 )
@@ -56,6 +57,8 @@ func (r *SnowfaceBenchmark) Similarity(worker int) (any, error) {
 	return &res, nil
 }
 
-func (r *SnowfaceBenchmark) SimilarityParse(resp any) {
-
+func (r *SnowfaceBenchmark) SimilarityParse(resp any, b *SnowfaceBenchmark) {
+	similarityResp := resp.(*SimilarityResp)
+	similarityScore := 1.0 / (1 + similarityResp.Distance)
+	b.telemetry.Get(similarity).(metrics.Histogram).Update(int64(similarityScore * 1000))
 }
