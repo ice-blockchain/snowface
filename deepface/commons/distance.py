@@ -3,7 +3,8 @@ import numpy as np
 def modelVectorLength(model: str):
     models = {
         "sface": 128,
-        "arcface": 512
+        "arcface": 512,
+        "ghostfacenet": 512,
     }
     return models[model]
 
@@ -45,6 +46,7 @@ def findThreshold(model_name, distance_metric):
         "OpenFace": {"cosine": 0.10, "euclidean": 0.55, "euclidean_l2": 0.55},
         "DeepFace": {"cosine": 0.23, "euclidean": 64, "euclidean_l2": 0.64},
         "DeepID": {"cosine": 0.015, "euclidean": 45, "euclidean_l2": 0.17},
+        "GhostFaceNet": {"cosine": 0.65, "euclidean": 35.71, "euclidean_l2": 1.10},
     }
 
     threshold = thresholds.get(model_name, base_threshold).get(distance_metric, 0.4)
