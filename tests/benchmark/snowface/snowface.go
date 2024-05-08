@@ -63,8 +63,6 @@ func NewBenchmark(host string, routines int, t time.Duration, samples string) *S
 		b.userID[i] = uID
 		b.token[i] = token
 	}
-	fmt.Println("Waiting for tokens to start working due to possible time lag")
-	time.Sleep(15 * time.Second)
 	fmt.Println("Starting")
 	go metrics.LogScaled(tel, time.Minute, time.Millisecond, b)
 	return b

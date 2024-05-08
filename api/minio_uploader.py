@@ -13,6 +13,7 @@ _minio_client = None
 _bucket_name = "photos"
 _disabled_users_bucket_name = "disabled"
 _review_photo_bucket_name = "review"
+_queue_selfie_bucket_name = "queue"
 _picture_primary = 0
 _picture_secondary = 1
 
@@ -39,6 +40,11 @@ def _get_minio_client():
                     raise e
         if not _minio_client.bucket_exists(_review_photo_bucket_name):
             try: _minio_client.make_bucket(_review_photo_bucket_name)
+            except minio.error.S3Error as e:
+                if e.code != "BucketAlreadyOwnedByYou":
+                    raise e
+        if not _minio_client.bucket_exists(_queue_selfie_bucket_name):
+            try: _minio_client.make_bucket(_queue_selfie_bucket_name)
             except minio.error.S3Error as e:
                 if e.code != "BucketAlreadyOwnedByYou":
                     raise e

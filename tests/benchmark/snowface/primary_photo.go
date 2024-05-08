@@ -3,6 +3,8 @@ package snowface
 import (
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/ice-blockchain/wintr/auth/fixture"
+	"github.com/ice-blockchain/wintr/log"
 	"github.com/pkg/errors"
 	"math/rand"
 )
@@ -11,8 +13,10 @@ type PrimaryPhotoResp struct {
 }
 
 func (r *SnowfaceBenchmark) PrimaryPhoto(worker int) (any, error) {
-	// no tokens for random IDs, needed to disable auth on server
-	return r.primaryPhoto(worker, uuid.NewString(), "", func() []byte {
+	userID := uuid.NewString()
+	_, token, err := fixture.GenerateIceTokens(userID, "testing-snowface")
+	log.Panic(err)
+	return r.primaryPhoto(worker, userID, token, func() []byte {
 		imgindex := rand.Int31n(int32(len(r.images) - 1))
 		return r.images[imgindex]
 	})
@@ -37,6 +41,9 @@ func (r *SnowfaceBenchmark) primaryPhoto(worker int, userID, token string, photo
 				panic(bErr)
 			}
 			err = errors.Errorf("status %v body %v", resp.StatusCode, b)
+			if resp.StatusCode == 429 {
+				fmt.Println(userID, token)
+			}
 		}
 		return nil, errors.Wrapf(err, "failed to parse face")
 	}

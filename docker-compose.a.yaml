@@ -12,6 +12,7 @@ services:
       - SERVER_A_ADDR=localhost # change to real server A ip.
       - SERVER_B_ADDR=localhost # change to real server B ip.
       - B_PORT=5000
+      - QUEUE_PORT=5002
       - A_PORT=5001
       - WEBHOOK_ADDR=https://localhost:1443/v1w/auth/processFaceRecognitionResult # change to real server B ip.
       - WEBHOOK_MIGRATE_PHONE_NUMBER_TO_EMAIL_ADDR=https://localhost:1443/v1w/auth/sendSignInLinkToEmail # change to real server B ip.

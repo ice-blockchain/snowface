@@ -1,0 +1,15 @@
+proxy:
+  proxyHost: http://localhost:5000
+  maxProcessTimeToQueue: 1s
+  dequeueRoutines: 2
+  defaultEndpointTimeout: 60s
+  httpServer:
+    port: 5002
+    certPath: .testdata/localhost.crt
+    keyPath: .testdata/localhost.key
+  wintr/connectors/storage/v3:
+    url: redis://default:redis-password@localhost:6379
+  minio:
+    accessKeyID: minioadmin
+    secretAccessKey: minioadmin
+    endpoint: localhost:9000
