@@ -78,6 +78,9 @@ func (r *SnowfaceBenchmark) loadImages(dir string) {
 	}
 	r.images = make([][]byte, len(entries))
 	for i, e := range entries {
+		if e.IsDir() {
+			continue
+		}
 		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
 		if err != nil {
 			panic(err)

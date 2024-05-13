@@ -21,7 +21,25 @@ services:
       - METRICS_PASSWORD=metrics-password
     command: /bin/bash -c "envsubst < /tmp/nginx.conf > /etc/nginx/conf.d/default.conf && echo -n metrics:$$(openssl passwd -apr1 $$METRICS_PASSWORD) >> /.metrics.htpasswd && nginx -g 'daemon off;'"
     network_mode: "host"
-
+    depends_on:
+      - "snowface-queue"
+  snowface-queue:
+    image: snowface-queue
+    build:
+      context: ${SNOWFACE_PATH:-.}/api/queue
+      dockerfile: Dockerfile
+    container_name: snowface-queue
+    environment:
+      JWT_SECRET: bogus
+      AUTH_CREDENTIALS_FILE_PATH: /.firebase-auth.json
+    volumes:
+      - ${SNOWFACE_PATH:-.}/api/queue/application.yaml:/application.yaml
+      - $PWD/.firebase-auth.json:/.firebase-auth.json
+      - ../snowface-extra/certs/server_crt_file.crt:/.testdata/localhost.crt # path to local crt.
+      - ../snowface-extra/certs/server_crt_file.key:/.testdata/localhost.key # path to local key.
+    depends_on:
+      - "snowface-liveness"
+    network_mode: "host"
   snowface-liveness:
     image: snowface-liveness
     build:
@@ -47,7 +65,7 @@ services:
       MILVUS_PASSWORD: Milvus # default = Milvus
       REDIS_URI: redis://:redis-password@localhost:6379/0
       LIMIT_RATE: 30 # seconds, staging value
-      LIMIT_RATE_NEGATIVE: 60 # second, staging value
+      LIMIT_RATE_NEGATIVE: 0 # second, staging value
       SIMILARITY_SERVER: http://127.0.0.1:5000/ # change to server B address.
       TOTAL_BEST_PICTURES: 7
       INITIAL_EMOTION_COUNT: 10
