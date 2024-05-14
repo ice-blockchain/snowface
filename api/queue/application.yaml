@@ -1,0 +1,12 @@
+logger:
+  encoder: console
+  level: info
+proxy:
+  proxyHostA: http://localhost:5001
+  proxyHostB: http://localhost:5000
+  maxProcessTimeForUnavailable: 1s
+  defaultEndpointTimeout: 60s
+  httpServer:
+    port: 5002
+    certPath: .testdata/localhost.crt
+    keyPath: .testdata/localhost.key

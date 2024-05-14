@@ -316,6 +316,7 @@ def find_target_size(model_name):
         "Dlib": (150, 150),
         "ArcFace": (112, 112),
         "SFace": (112, 112),
+        "GhostFaceNet": (112, 112),
     }
 
     target_size = target_sizes.get(model_name)

@@ -37,7 +37,7 @@ services:
   # Single instance, but we can also deploy a cluster with k8s https://milvus.io/docs/install_cluster-milvusoperator.md
   milvus-standalone:
     container_name: milvus-standalone
-    image: milvusdb/milvus:v2.3.1
+    image: milvusdb/milvus:v2.4.0
     command: ["milvus", "run", "standalone"]
     environment:
       ETCD_ENDPOINTS: localhost:2379
@@ -74,7 +74,7 @@ services:
       context: ${SNOWFACE_PATH:-.}
       dockerfile: Dockerfile
       args:
-        WORKERS: 4 # workers count in gunicorn (=support of concurrent requests at the same time), it works better with 4cpu cores / worker or 2300Mb of videomem / worker
+        WORKERS: 1 # workers count in gunicorn (=support of concurrent requests at the same time), it works better with 4cpu cores / worker or 2300Mb of videomem / worker
     container_name: snowface-recognition
     volumes:
       - $PWD/.firebase-auth.json:/.firebase-auth.json
@@ -97,7 +97,9 @@ services:
       # like docker run python:3.8 bash -c "pip3 install pymilvus; python3 -c \"from pymilvus import utility; from pymilvus import connections; connections.connect(host='http://localhost',port='19530',user='root',password='Milvus');utility.reset_password('root', 'Milvus', 'new_password')\""
       MILVUS_PASSWORD: Milvus # default = Milvus
       REDIS_URI: redis://:redis-password@localhost:6379/0
-      METADATA_UPDATED_CALLBACK_URL: https://localhost:443/webhook #webhook to freezer-refrigerant endpoint, if emptty / not set = no webhook called
+      PRIMARY_PHOTO_SFACE_DISTANCE: -1
+      PRIMARY_PHOTO_ARCFACE_DISTANCE: -1
+      #METADATA_UPDATED_CALLBACK_URL: https://localhost:443/webhook #webhook to freezer-refrigerant endpoint, if emptty / not set = no webhook called
       MIGRATE_PHONE_LOGIN_CALLBACK_URL: https://localhost:1443/webhook-migrate-phone-number-to-email #webhook to eskimo endpoint, if emptty / not set = no webhook called
       METADATA_UPDATED_SECRET: bogus-secret # secret token matching with freezer-refrigerant
       PRIMARY_PHOTO_ERROR_LIMIT: 10/minute # if empty/not set = no limit

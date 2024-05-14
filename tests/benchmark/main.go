@@ -25,12 +25,12 @@ func main() {
 	if routines != nil && *routines != 0 {
 		r = *routines
 	}
-	h := "http://localhost:5000"
+	h := "https://localhost:443"
 	if host != nil && *host != "" {
 		h = *host
 	}
 	b := snowface.NewBenchmark(h, r, 10*time.Minute, f)
 	//b.Benchmark(b.Liveness, b.LivenessParse)
-	//b.Benchmark(b.PrimaryPhoto, b.PrimaryPhotoParse)
-	b.Benchmark(b.Similarity, b.SimilarityParse)
+	b.Benchmark(b.PrimaryPhoto, b.PrimaryPhotoParse)
+	//b.Benchmark(b.Similarity, b.SimilarityParse)
 }
