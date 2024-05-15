@@ -292,21 +292,20 @@ def delete_photos(current_user: Token):
 
                     user_id = json_user_id
         try:
-            ion_id = ionID(email, phone_number)
             if current_app.config["MINIO_URI"]:
                 service.delete_user_photos_and_metadata(current_user, to_delete_user_id=user_id)
 
-                return {"IONID": ion_id}, 200
+                return "", 200
             elif current_app.config["IMG_STORAGE_PATH"]:
                 if user_id != "":
                     service.delete_temporary_user_data(user_id)
                 else:
                     service.delete_temporary_user_data(current_user.user_id)
-                return service.proxy_delete_if_not_exists(current_app.config['SIMILARITY_SERVER'], current_user, user_id)
+                return service.proxy_delete_if_not_exists(current_app.config['SIMILARITY_SERVER'], current_user, user_id, )
         except exceptions.MetadataNotFound as e:
             _log_error(current_user, e)
 
-            return {"IONID": ion_id}, 204
+            return "", 204
         except webhook.UnauthorizedFromWebhook as e:
             return str(e), 401
         except exceptions.NoEmailAndPhoneNumber as e:

@@ -140,7 +140,7 @@ def delete_user_photos_and_metadata(current_user, to_delete_user_id = "", force_
     if len(errs) > 0:
         raise Exception(str(errs))
     #make email and phone available again
-    _rollback_unique_email_and_phone_number(user_id, prev_state)
+    _rollback_unique_email_and_phone_number(user_id, main_md)
     if force_user_id == "":
         _full_user_reset(user_id, prev_state=prev_state if keep_retries else None)
         if prev_state is not None:

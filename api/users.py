@@ -119,6 +119,8 @@ def get_user(user_id: str, search_growing = True):
               "available_retries",
               "possible_duplicate_with",
               "duplicate_review_count",
+              "phone_number",
+              "email"
               "ip"
             ]
     mappers = {
