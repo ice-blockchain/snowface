@@ -9,7 +9,8 @@ from users import (
     remove_expired                            as _remove_expired,
     set_expired                               as _set_expired,
     update_user                               as _update_user,
-    rollback_manual_review                    as _rollback_manual_review
+    rollback_manual_review                    as _rollback_manual_review,
+    rollback_unique_email_and_phone_number    as _rollback_unique_email_and_phone_number
 
 )
 from faces import (
@@ -35,10 +36,10 @@ _model = "SFace"
 _model_fallback = "ArcFace"#"Facenet" #"VGG-Face
 _detector_high_quality = "yunet"
 def primary_photo_passed(now, current_user, user_id, user, photo_stream, md_sface, md, attempt, admin_perm_user_id = ""):
-    url = put_primary_photo(user_id,photo_stream)
-    upd, rows = _set_primary_metadata(now, user_id, md, url, model=_model_fallback)
+    put_primary_photo(user_id,photo_stream)
+    upd, rows = _set_primary_metadata(now, user_id, md, user.get("email", ""),user.get("phone_number", ""), model=_model_fallback)
     if rows > 0:
-        _set_primary_metadata(now, user_id, md_sface, url, model=_model)
+        _set_primary_metadata(now, user_id, md_sface, user.get("email", ""),user.get("phone_number", ""), model=_model)
         metrics.register_primary_photo_uploaded(current_app.config["PRIMARY_PHOTO_RETRIES"] - attempt + 1)
         try:
             callback(
@@ -57,6 +58,8 @@ def primary_photo_passed(now, current_user, user_id, user, photo_stream, md_sfac
             _delete_metadatas(user_id, [upd["user_picture_id"]])
             if user and user.get("possible_duplicate_with",[]):
                 _rollback_manual_review(user_id)
+            if user and (user.get("email") or user.get("phone_number")):
+                _rollback_unique_email_and_phone_number(user_id, user)
             raise e # goes to 5xx
 
 def primary_photo_declined(e, now, current_user, user_id, photo_stream, admin_perm_user_id = ""):
@@ -136,7 +139,8 @@ def delete_user_photos_and_metadata(current_user, to_delete_user_id = "", force_
     main, secondary, errs = _delete_photos(user_id)
     if len(errs) > 0:
         raise Exception(str(errs))
-
+    #make email and phone available again
+    _rollback_unique_email_and_phone_number(user_id, prev_state)
     if force_user_id == "":
         _full_user_reset(user_id, prev_state=prev_state if keep_retries else None)
         if prev_state is not None:
@@ -177,9 +181,9 @@ def _rollback_deletion(prev_state, user_id, main, secondary, main_md, secondary_
     if secondary is not None:
         _put_secondary_photo(user_id=user_id, photo_content=io.BytesIO(secondary))
     if main_md:
-        _set_primary_metadata(main_md["uploaded_at"], user_id, main_md["face_metadata"], main_md["url"], model=_model_fallback)
+        _set_primary_metadata(main_md["uploaded_at"], user_id, main_md["face_metadata"], main_md["email"],main_md["phone_number"], model=_model_fallback)
     if secondary_md:
-        _update_secondary_metadata(secondary_md["uploaded_at"], user_id, secondary_md["face_metadata"], secondary_md["url"], model=_model_fallback)
+        _update_secondary_metadata(secondary_md["uploaded_at"], user_id, secondary_md["face_metadata"], model=_model_fallback, email=secondary_md["email"], phone_number=secondary_md["phone_number"])
 
     if prev_state is not None:
         _rollback_user_state(user_id, prev_state)

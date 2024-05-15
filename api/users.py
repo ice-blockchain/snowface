@@ -1,6 +1,10 @@
+import json
+import uuid
+
 import redis, os
 from flask import current_app
 from typing import List
+from exceptions import EmailOrPhoneNumberNotUnique, NoEmailAndPhoneNumber
 _client = None
 
 def _get_client():
@@ -14,6 +18,10 @@ def _get_client():
 
 def _userKey(userId: str):
     return "users:"+userId
+def _emailsKey():
+    return "emails"
+def _phoneNumbersKey():
+    return "phoneNumbers"
 def _pendingFace(userId: str):
     return "pendingFace:"+userId
 def _reviewMetadata(userId: str):
@@ -124,6 +132,8 @@ def get_user(user_id: str, search_growing = True):
         "available_retries": int,
         "duplicate_review_count": lambda x: int(x) if x else 0,
         "possible_duplicate_with": lambda x: str(x, encoding = "utf-8").split(",") if x else [],
+        "email": lambda x: str(x, encoding = "utf-8") if x else "",
+        "phone_number": lambda x: str(x, encoding = "utf-8") if x else "",
         "ip":lambda x: str(x, encoding = "utf-8") if x else ""
     }
     res = r.hmget(_userKey(user_id),hkeys)
@@ -347,3 +357,62 @@ def ping():
     r = _get_client()
 
     return r.ping()
+
+def register_unique_email_and_phone_number(user_id, user):
+    r = _get_client()
+    email = user.get("email","")
+    phone_number = user.get("phone_number","")
+    mapping = {}
+    unique = False
+    ion_id = ionID(phone_number, email)
+    ids = json.dumps({"user_id": user_id,"ion_id":ion_id})
+    if email:
+        unique = r.hset(_emailsKey(), mapping={
+            email: ids
+        }) == 1
+        mapping["email"] = email
+    if (not email or (email and unique)) and phone_number:
+        unique = r.hset(_phoneNumbersKey(), mapping={
+            phone_number: ids
+        }) == 1
+        mapping["phone_number"] = phone_number
+    if mapping:
+        mapping["ion_id"] = ion_id
+        if unique:
+            r.hset(_userKey(user_id), mapping=mapping)
+        else:
+            raise EmailOrPhoneNumberNotUnique("not unique "+ ("phone number" if "phone_number" in mapping.keys() else "email "))
+def rollback_unique_email_and_phone_number(user_id, user):
+    r = _get_client()
+    email = user.get("email","")
+    phone_number = user.get("phone_number","")
+    if email:
+        r.hdel(_emailsKey(), email)
+    if phone_number:
+        r.hdel(_phoneNumbersKey(), phone_number)
+    r.hdel(_userKey(user_id), "email", "phone_number")
+
+def ionID(phone_number, email):
+    data = None
+    if email:
+        id = _get_ionID(_emailsKey(), email)
+        if not id:
+            data = f"e:{email}"
+    elif phone_number:
+        id = _get_ionID(_phoneNumbersKey(), phone_number)
+        if not id:
+            data = f"p:{phone_number}"
+    else:
+        raise NoEmailAndPhoneNumber("at least one of (email, phone_number) must be provided")
+    if data:
+        uid = uuid.uuid5(uuid.UUID("00000000-0000-0000-0000-000000000000"),data)
+        id = str(uid)
+    return id
+
+def _get_ionID(key: str, search: str):
+    r = _get_client()
+    val = r.hget(key, search)
+    if val is None:
+        return None
+    ids = json.loads(str(val, encoding = "utf-8"))
+    return ids["ion_id"]

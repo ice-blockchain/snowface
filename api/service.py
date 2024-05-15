@@ -17,8 +17,7 @@ from faces import (
     get_secondary_metadata                 as _get_secondary_metadata,
     update_secondary_metadata              as _update_secondary_metadata,
     find_similar_users                     as _find_similar_users,
-    set_primary_metadata                   as _set_primary_metadata,
-    apply_secondary_pending                as apply_secondary_pending
+    set_primary_metadata                   as _set_primary_metadata
 )
 
 from users import (
@@ -41,7 +40,8 @@ from users import (
     put_user_similarity_resp                   as _put_user_similarity_resp,
     update_secondary_metadata_pending          as _update_secondary_metadata_pending,
     get_pending_face                           as _get_pending_face,
-    add_possible_duplicate_with                as _add_possible_duplicate_with
+    add_possible_duplicate_with                as _add_possible_duplicate_with,
+    register_unique_email_and_phone_number       as _register_unique_email_and_phone_number
 )
 import review, primary_photo
 
@@ -191,7 +191,7 @@ def set_primary_photo_internal(now: int,user_id: str, photo_stream, attempt):
                             normalization="base",
                             target_size=(112, 112),
                         )[0]["embedding"])
-                        _update_secondary_metadata(now,user_id=similar_users[0],metadata=existing_arcface_secondary_md,url="/photos/"+similar_users[0]+"/1",model=_model_fallback)
+                        _update_secondary_metadata(now,user_id=similar_users[0],metadata=existing_arcface_secondary_md,model=_model_fallback, email=similar_user_md.get("email",""), phone_number=similar_user_md.get("phone_number", ""))
                 if existing_arcface_secondary_md is not None:
                     bestIndex, euclidian, bestNotFittingIndex = compare_metadatas([md,existing_arcface_secondary_md], current_app.config["PRIMARY_PHOTO_ARCFACE_DISTANCE"])
                     if bestIndex != -1:
@@ -228,14 +228,13 @@ def set_primary_photo_internal(now: int,user_id: str, photo_stream, attempt):
         similar_users.pop()
     return md, sface_md, similar_users
 
-def set_primary_photo(current_user, client_ip, user_id: str, photo_stream):
+def set_primary_photo(current_user, client_ip, user_id: str, photo_stream, email: str, phone_number: str):
     now = time.time_ns()
     user = _get_user(user_id, search_growing=False)
     if user is not None and user["disabled_at"] > 0:
         raise exceptions.UserDisabled(f"User {user_id} was disabled at {user['disabled_at']}")
     if user is not None and user["possible_duplicate_with"]:
         raise exceptions.RateLimitException(f"User was forwarded to manual review")
-
     existing_md = _get_primary_metadata(user_id, search_growing=False, model=_model_fallback)
     if existing_md is not None:
         # retry webhook as normally user should not get here
@@ -256,7 +255,11 @@ def set_primary_photo(current_user, client_ip, user_id: str, photo_stream):
         attempt = user["available_retries"]
     else:
         attempt = current_app.config["PRIMARY_PHOTO_RETRIES"]
-
+    if user is None:
+        user={
+            "email": email,
+            "phone_number": phone_number
+        }
     try:
         md, md_sface, similar_users = set_primary_photo_internal(now, user_id=user_id, photo_stream=photo_stream, attempt=current_app.config["PRIMARY_PHOTO_RETRIES"] - attempt + 1)
     except exceptions.NoFaces as e:
@@ -268,10 +271,11 @@ def set_primary_photo(current_user, client_ip, user_id: str, photo_stream):
             if _is_review_disabled():
                 primary_photo.primary_photo_declined(e, now, current_user, current_user.user_id, photo_stream.stream)
             else:
+                _register_unique_email_and_phone_number(user_id,user)
                 review.primary_photo_to_review(now, current_user, user_id, user, photo_stream, e.arcface_metadata, e.similar_users, client_ip, e)
             return
         raise e
-
+    _register_unique_email_and_phone_number(user_id,user)
     primary_photo.primary_photo_passed(now, current_user, user_id, user, photo_stream.stream, md_sface, md, attempt)
 
 
@@ -292,11 +296,10 @@ def check_similarity_and_update_secondary_photo(current_user, user_id: str, raw_
             metrics.register_similarity_failure(euclidian_sface, euclidian)
             raise exceptions.NotSameUser(f"user mismatch for user_id {user_id}: distance is greater than {sface_threshold} {threshold}: {euclidian_sface} {euclidian}")
     if not migrate_phone_login:
-        url = put_secondary_photo(user_id,raw_pics[bestIndex].stream)
-        if emotionSessionId:
-            url = f"{url}?emotionSessionId={emotionSessionId}"
+        put_secondary_photo(user_id,raw_pics[bestIndex].stream)
+
         prev_state = _get_secondary_metadata(user_id, model=_model)
-        upd, rows = _update_secondary_metadata_pending(now, user_id, best_md, url, model=_model)
+        upd, rows = _update_secondary_metadata_pending(now, user_id, best_md, model=_model)
         ###
         # with metrics.represent_time.labels(model = _model_fallback).time():
         #     m = DeepFace.build_model(_model_fallback)
@@ -749,8 +752,8 @@ def _finish_session(usr, current_user, migrate_phone_login):
     if identity_match:
         if not migrate_phone_login:
             url, uploadedat, face = _get_pending_face(usr['user_id'])
-            if url is not None and uploadedat is not None and face is not None:
-                _update_secondary_metadata(int(uploadedat),usr['user_id'], [float(x) for x in face], str(url), _model)
+            if uploadedat is not None and face is not None:
+                _update_secondary_metadata(int(uploadedat),usr['user_id'], [float(x) for x in face], usr.get("email", ""),usr.get("phone_number", ""), _model)
         else:
             login_session = _send_magic_link(usr['user_id'], current_user)
 
@@ -1010,10 +1013,10 @@ def _reprocess_wrongfully_disabled_users():
                 logging.error(f"[reprocess_wrongfully_disabled_users] User {user_id}: "+str(e), exc_info=e)
                 continue
             try:
-                url = put_primary_photo(user_id,io.BytesIO(photo))
-                upd, rows = _set_primary_metadata(now, user_id, md, url, model=_model_fallback)
+                put_primary_photo(user_id,io.BytesIO(photo))
+                upd, rows = _set_primary_metadata(now, user_id, md,user.get("email", ""),user.get("phone_number", ""), model=_model_fallback)
                 if rows > 0:
-                    _set_primary_metadata(now, user_id, md_sface, url, model=_model)
+                    _set_primary_metadata(now, user_id, md_sface, user.get("email", ""),user.get("phone_number", ""), model=_model)
                     metrics.register_primary_photo_uploaded(1)
                     if __admin_token is None:
                         __admin_token = _get_admin_token()

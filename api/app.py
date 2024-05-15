@@ -109,7 +109,8 @@ def when_ready(app):
     if os.environ.get('MINIO_URI'):
         start_wrongfully_disabled_users_worker()
     if os.environ.get('IMG_STORAGE_PATH'):
-        start_emotion_photo_cleaner()
+        #start_emotion_photo_cleaner()
+        pass
 
 
 def on_exit(arbiter):

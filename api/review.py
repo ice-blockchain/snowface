@@ -10,7 +10,8 @@ from users import (
     rollback_manual_review as _rollback_manual_review,
     pop_possible_duplicate_with as _pop_possible_duplicate_with,
     add_possible_duplicate_with as _add_possible_duplicate_with,
-    get_face_metadata_pending_review as _get_face_metadata_pending_review
+    get_face_metadata_pending_review as _get_face_metadata_pending_review,
+    rollback_unique_email_and_phone_number as _rollback_unique_email_and_phone_number
 )
 from minio_uploader import (
     put_review_photo as _put_review_photo,
@@ -52,9 +53,13 @@ def primary_photo_to_review(now, current_user, user_id, user, photo_stream,metad
         )
     except UnauthorizedFromWebhook as e:
         _rollback_manual_review(user_id)
+        if user and (user.get("email") or user.get("phone_number")):
+            _rollback_unique_email_and_phone_number(user_id, user)
         raise e
     except Exception as e:
         _rollback_manual_review(user_id)
+        if user and (user.get("email") or user.get("phone_number")):
+            _rollback_unique_email_and_phone_number(user_id, user)
         raise e
     raise exceptions.UserForwardedToManualReview(f"user {user_id} forwarded to manual review: {str(e)}")
 

@@ -37,11 +37,13 @@ type AvailabilityResult struct {
 }
 
 type proxyCallParams struct {
-	Endpoint string
-	UserID   string
-	Token    string
-	Metadata string
-	payload  func(request *req.Request) (*req.Request, error)
+	Endpoint    string
+	UserID      string
+	Token       string
+	Email       string
+	PhoneNumber string
+	Metadata    string
+	payload     func(request *req.Request) (*req.Request, error)
 }
 
 func (s *service) availability(endpoint string) (bool, time.Duration) {
@@ -57,7 +59,13 @@ func (s *service) availability(endpoint string) (bool, time.Duration) {
 
 func (s *service) callProxy(ctx context.Context, host string, params *proxyCallParams, metric metrics.Histogram) (int, *ErrornousResp, error) {
 	cl := s.client.R()
-	cl = cl.SetHeader("Authorization", params.Token).SetHeader("X-Account-Metadata", params.Metadata)
+	cl = cl.
+		SetHeader("Authorization", params.Token).
+		SetHeader("X-Account-Metadata", params.Metadata).
+		SetFormData(map[string]string{
+			"email":        params.Email,
+			"phone_number": params.PhoneNumber,
+		})
 	var err error
 	cl, err = params.payload(cl)
 	if err != nil {

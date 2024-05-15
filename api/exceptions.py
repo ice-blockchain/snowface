@@ -70,3 +70,9 @@ class WrongImageSizeException(Exception):
 class UserForwardedToManualReview(Exception):
     def __init__(self, message):
         super().__init__(message)
+class EmailOrPhoneNumberNotUnique(Exception):
+    def __init__(self, message):
+        super().__init__(message)
+class NoEmailAndPhoneNumber(Exception):
+    def __init__(self, message):
+        super().__init__(message)

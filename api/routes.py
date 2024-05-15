@@ -1,4 +1,5 @@
 import base64
+import uuid
 
 from flask import Blueprint, request, current_app, Response
 import service, exceptions, webhook
@@ -14,7 +15,7 @@ from prometheus_client import CONTENT_TYPE_LATEST
 from metrics import latest, REQUEST_TIME, request_queue_time
 from flask_httpauth import HTTPBasicAuth
 from faces import ping as milvus_ping
-from users import ping as redis_ping
+from users import ping as redis_ping, ionID
 from minio_uploader import ping as minio_ping
 from client_ip import client_ip
 
@@ -36,6 +37,7 @@ _no_pending_users = "NO_PENDING_USERS"
 _not_in_review = "USER_IS_NOT_ON_REVIEW"
 _conflict_with_another_user = "CONFLICT_WITH_ANOTHER_USER"
 _too_many_requests = "TOO_MANY_REQUESTS"
+_missing_fields = "MISSING_FIELDS"
 _allowed_extensions = {'jpg', 'jpeg'}
 
 _primary_photo_rate_limiter = MovingWindowRateLimiter(storage=MemoryStorage())
@@ -221,10 +223,12 @@ def primary_photo(current_user,client_ip, user_id):
         try:
             if _primary_photo_rate_limiter_rate is not None and not _primary_photo_rate_limiter.test(_primary_photo_rate_limiter_rate, user_id): # global, should it be per user_id?
                 return {"message": f"rate limit for errors {_primary_photo_rate_limiter_rate} exceeded", "code":_rate_limit_exceeded}, 429
+            email = request.form.get("email", "")
+            phone_number = request.form.get("phone_number", "")
+            ion_id = ionID(email, phone_number)
+            service.set_primary_photo(current_user, client_ip, user_id, request.files["image"], email, phone_number)
 
-            service.set_primary_photo(current_user, client_ip, user_id, request.files["image"])
-
-            return {"skipEmotions":False},200
+            return {"skipEmotions":False, "IONID": ion_id},200
         except exceptions.UserForwardedToManualReview as e:
             _log_error(current_user, e)
 
@@ -256,6 +260,10 @@ def primary_photo(current_user,client_ip, user_id):
             return str(e), 401
         except exceptions.RateLimitException as e:
             return {"message": f"user is on manual review", "code":_rate_limit_exceeded}, 429
+        except exceptions.NoEmailAndPhoneNumber as e:
+            return {"message": str(e), "code":_missing_fields},400
+        except exceptions.EmailOrPhoneNumberNotUnique as e:
+            return {"message": str(e), "code":_conflict_with_another_user},409
         except Exception as e:
             _log_error(current_user, e, True)
 
@@ -267,10 +275,14 @@ def primary_photo(current_user,client_ip, user_id):
 def delete_photos(current_user: Token):
     with REQUEST_TIME.labels(path="/v1w/face-auth/").time():
         user_id = ""
+        email = ""
+        phone_number = ""
         if request.content_type == "application/json" or request.content_type == "application/json; charset=utf-8":
             data = request.get_json(force=True)
             if data is not None:
                 json_user_id = data.get("userId", None)
+                email = data.get("email","")
+                phone_number = data.get("phone_number","")
                 if not json_user_id:
                     return {"message":"userId is missing"}, 422
 
@@ -280,10 +292,11 @@ def delete_photos(current_user: Token):
 
                     user_id = json_user_id
         try:
+            ion_id = ionID(email, phone_number)
             if current_app.config["MINIO_URI"]:
                 service.delete_user_photos_and_metadata(current_user, to_delete_user_id=user_id)
 
-                return "", 200
+                return {"IONID": ion_id}, 200
             elif current_app.config["IMG_STORAGE_PATH"]:
                 if user_id != "":
                     service.delete_temporary_user_data(user_id)
@@ -293,9 +306,11 @@ def delete_photos(current_user: Token):
         except exceptions.MetadataNotFound as e:
             _log_error(current_user, e)
 
-            return "", 204
+            return {"IONID": ion_id}, 204
         except webhook.UnauthorizedFromWebhook as e:
             return str(e), 401
+        except exceptions.NoEmailAndPhoneNumber as e:
+            return {"message": str(e), "code":_missing_fields},400
         except Exception as e:
             _log_error(current_user, e, True)
 
@@ -321,9 +336,12 @@ def user_status(current_user, user_id):
 def emotions(current_user, user_id):
     with REQUEST_TIME.labels(path="/v1w/face-auth/emotions").time():
         try:
+            email = request.form.get("email", "")
+            phone_number = request.form.get("phone_number", "")
+            ion_id = ionID(email, phone_number)
             emotions_list, session_id, session_expired_at = service.emotions(user_id=user_id, migrate_phone_login = current_user.phone_number_migration)
 
-            return {'emotions': emotions_list, 'sessionId': session_id, 'sessionExpiredAt': session_expired_at}
+            return {'emotions': emotions_list, 'sessionId': session_id, 'sessionExpiredAt': session_expired_at, "IONID": ion_id}
         except exceptions.UserDisabled as e:
             _log_error(current_user, e)
 
@@ -336,6 +354,8 @@ def emotions(current_user, user_id):
             _log_error(current_user, e)
 
             return {'message': str(e), 'code': _rate_limit_negative_exceeded}, 429
+        except exceptions.NoEmailAndPhoneNumber as e:
+            return {"message": str(e), "code":_missing_fields},400
         except Exception as e:
             _log_error(current_user, e, True)
 
@@ -360,10 +380,12 @@ def liveness(current_user, user_id, session_id):
         for img in images:
             if _allowed_file_format(img.filename) is False:
                 return {"message": "wrong image format", 'code': _invalid_properties}, 400
-
         try:
+            email = request.form.get("email", "")
+            phone_number = request.form.get("phone_number", "")
+            ion_id = ionID(email, phone_number)
             result, session_ended, emotions, login_session = service.process_images(current_user=current_user, user_id=user_id, session_id=session_id, images=images, migrate_phone_login = current_user.phone_number_migration)
-            response = {'result': result, 'sessionEnded': session_ended, 'emotions': emotions.split(","), 'sessionId': session_id}
+            response = {'result': result, 'sessionEnded': session_ended, 'emotions': emotions.split(","), 'sessionId': session_id, "IONID": ion_id}
             if login_session is not None:
                 response['loginSession'] = login_session
 
@@ -404,6 +426,8 @@ def liveness(current_user, user_id, session_id):
             _log_error(current_user, e)
 
             return {'message': str(e), 'code': _too_many_requests}, 429
+        except exceptions.NoEmailAndPhoneNumber as e:
+            return {"message": str(e), "code":_missing_fields},400
         except Exception as e:
             _log_error(current_user, e, True)
 
