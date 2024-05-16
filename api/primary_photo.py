@@ -10,7 +10,8 @@ from users import (
     set_expired                               as _set_expired,
     update_user                               as _update_user,
     rollback_manual_review                    as _rollback_manual_review,
-    rollback_unique_email_and_phone_number    as _rollback_unique_email_and_phone_number
+    rollback_unique_email_and_phone_number    as _rollback_unique_email_and_phone_number,
+    mark_photo_uploaded                       as _mark_photo_uploaded
 
 )
 from faces import (
@@ -61,6 +62,7 @@ def primary_photo_passed(now, current_user, user_id, user, photo_stream, md_sfac
             if user and (user.get("email") or user.get("phone_number")):
                 _rollback_unique_email_and_phone_number(user_id, user)
             raise e # goes to 5xx
+        _mark_photo_uploaded(user_id, upd, True)
 
 def primary_photo_declined(e, now, current_user, user_id, photo_stream, admin_perm_user_id = ""):
     disabled = _disable_user(now,user_id, photo_stream)
@@ -167,6 +169,8 @@ def delete_user_photos_and_metadata(current_user, to_delete_user_id = "", force_
         _rollback_deletion(prev_state, user_id, main, secondary, main_md, secondary_md)
 
         raise e # goes to 5xx
+    _mark_photo_uploaded(callback_user_id,None, True)
+    _mark_photo_uploaded(callback_user_id,None, False)
     if (deleted_mds == 0 or (main_md is None and secondary_md is None)) and prev_state is None:
         raise exceptions.MetadataNotFound(f"face metadata for userId {user_id} was not deleted(no data)")
 

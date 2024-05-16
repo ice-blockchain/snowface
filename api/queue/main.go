@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	appcfg "github.com/ice-blockchain/wintr/config"
+	"github.com/ice-blockchain/wintr/connectors/storage/v3"
 	"github.com/ice-blockchain/wintr/log"
 	"github.com/ice-blockchain/wintr/server"
 	"github.com/imroc/req/v3"
@@ -21,6 +22,7 @@ type service struct {
 	client   *req.Client
 	proxyCfg proxyCfg
 	connErrs atomic.Uint64
+	redis    storage.DB
 }
 
 type proxyCfg struct {
@@ -40,6 +42,8 @@ func (s *service) RegisterRoutes(router *server.Router) {
 		POST("primary_photo/:userId", server.RootHandler(s.PrimaryPhoto)).
 		POST("liveness/:userId/:sessionId", server.RootHandler(s.Liveness)).
 		GET("availability", server.RootHandler(s.Availability))
+	router.Group("/v1r/face-auth").
+		POST("status", server.RootHandler(s.Status))
 }
 
 func (s *service) Init(ctx context.Context, cancel context.CancelFunc) {
@@ -49,6 +53,7 @@ func (s *service) Init(ctx context.Context, cancel context.CancelFunc) {
 	}
 	s.client = req.DefaultClient()
 	s.metrics = metrics.NewRegistry()
+	s.redis = storage.MustConnect(ctx, "proxy")
 	go s.clearHistogram(ctx)
 	go metrics.LogScaled(s.metrics, 5*time.Minute, 1*time.Millisecond, s)
 }

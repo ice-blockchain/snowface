@@ -41,7 +41,8 @@ from users import (
     update_secondary_metadata_pending          as _update_secondary_metadata_pending,
     get_pending_face                           as _get_pending_face,
     add_possible_duplicate_with                as _add_possible_duplicate_with,
-    register_unique_email_and_phone_number       as _register_unique_email_and_phone_number
+    register_unique_email_and_phone_number       as _register_unique_email_and_phone_number,
+    mark_photo_uploaded                        as _mark_photo_uploaded
 )
 import review, primary_photo
 
@@ -245,6 +246,7 @@ def set_primary_photo(current_user, client_ip, user_id: str, photo_stream, email
                 secondary_md=None,
                 user=user
             )
+            _mark_photo_uploaded(user_id, existing_md, True)
             return
         except UnauthorizedFromWebhook as e:
             raise e
@@ -533,7 +535,6 @@ def emotions(user_id: str, migrate_phone_login: bool):
             idx = int(i/total_emotions_count)*total_emotions_count
             new_emotion, _ = _get_unique_emotion(emotions_list[idx:],excluded_emotions=set(emotions_list[-1]))
         emotions_list.append(new_emotion)
-
     res = _update_user(
         user_id=user_id,
         session_id=session_id,
@@ -753,7 +754,8 @@ def _finish_session(usr, current_user, migrate_phone_login):
         if not migrate_phone_login:
             url, uploadedat, face = _get_pending_face(usr['user_id'])
             if uploadedat is not None and face is not None:
-                _update_secondary_metadata(int(uploadedat),usr['user_id'], [float(x) for x in face], usr.get("email", ""),usr.get("phone_number", ""), _model)
+                upd, rows = _update_secondary_metadata(int(uploadedat),usr['user_id'], [float(x) for x in face], email=usr.get("email", ""), phone_number=usr.get("phone_number", ""), model=_model)
+                _mark_photo_uploaded(usr['user_id'], upd, False)
         else:
             login_session = _send_magic_link(usr['user_id'], current_user)
 
@@ -1016,7 +1018,7 @@ def _reprocess_wrongfully_disabled_users():
                 put_primary_photo(user_id,io.BytesIO(photo))
                 upd, rows = _set_primary_metadata(now, user_id, md,user.get("email", ""),user.get("phone_number", ""), model=_model_fallback)
                 if rows > 0:
-                    _set_primary_metadata(now, user_id, md_sface, user.get("email", ""),user.get("phone_number", ""), model=_model)
+                    upd, rows = _set_primary_metadata(now, user_id, md_sface, user.get("email", ""),user.get("phone_number", ""), model=_model)
                     metrics.register_primary_photo_uploaded(1)
                     if __admin_token is None:
                         __admin_token = _get_admin_token()
@@ -1037,6 +1039,7 @@ def _reprocess_wrongfully_disabled_users():
                             user=user,
                             user_id=user_id,
                         )
+                    _mark_photo_uploaded(user_id,upd,True)
             except Exception as e:
                 _put_disabled_user_for_selfie_reprocessing(user_id)
                 logging.error(f"[reprocess_wrongfully_disabled_users] User {user_id}: "+str(e), exc_info=e)

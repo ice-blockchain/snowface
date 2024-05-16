@@ -120,8 +120,10 @@ def get_user(user_id: str, search_growing = True):
               "possible_duplicate_with",
               "duplicate_review_count",
               "phone_number",
-              "email"
-              "ip"
+              "email",
+              "ip",
+              "primary_uploaded_at",
+              "secondary_uploaded_at"
             ]
     mappers = {
         "session_id": lambda x: str(x, encoding = "utf-8") if x else "",
@@ -136,7 +138,9 @@ def get_user(user_id: str, search_growing = True):
         "possible_duplicate_with": lambda x: str(x, encoding = "utf-8").split(",") if x else [],
         "email": lambda x: str(x, encoding = "utf-8") if x else "",
         "phone_number": lambda x: str(x, encoding = "utf-8") if x else "",
-        "ip":lambda x: str(x, encoding = "utf-8") if x else ""
+        "ip":lambda x: str(x, encoding = "utf-8") if x else "",
+        "primary_uploaded_at": lambda x: int(x) if x else 0,
+        "secondary_uploaded_at": lambda x: int(x) if x else 0,
     }
     res = r.hmget(_userKey(user_id),hkeys)
     if res.count(None) == len(hkeys):
@@ -314,12 +318,11 @@ def rollback_reviewed(admin_id: str, user_id: str, user: dict, retry = False,):
         p.set(f"user_pending_duplicate_review_{admin_id}", user_id)
         p.execute()
 
-def update_secondary_metadata_pending(now: int, user_id:str, metadata: list, url: str, model: str):
+def update_secondary_metadata_pending(now: int, user_id:str, metadata: list, model: str):
     r = _get_client()
     with r.pipeline(transaction=True) as p:
         r.hset(_userKey(user_id),mapping = {
             "uploaded_at": now,
-            "url": url,
         })
         r.delete(_pendingFace(user_id))
         r.rpush(_pendingFace(user_id), *metadata)
@@ -329,7 +332,6 @@ def update_secondary_metadata_pending(now: int, user_id:str, metadata: list, url
         "user_id": user_id,
         "picture_id": 2,
         "face_metadata": metadata,
-        "url": url,
         "uploaded_at": now
     }, 1
 
@@ -360,13 +362,23 @@ def ping():
 
     return r.ping()
 
+def mark_photo_uploaded(user_id, face_md, primary):
+    if primary:
+        hkey = "primary_uploaded_at"
+    else:
+        hkey = "secondary_uploaded_at"
+    r = _get_client()
+    r.hset(_userKey(user_id),mapping = {
+        hkey: face_md["uploaded_at"] if face_md else 0
+    })
+
 def register_unique_email_and_phone_number(user_id, user):
     r = _get_client()
     email = user.get("email","")
     phone_number = user.get("phone_number","")
     mapping = {}
     unique = False
-    ion_id = ionID(phone_number, email)
+    ion_id = ionID(email, phone_number)
     ids = json.dumps({"user_id": user_id,"ion_id":ion_id})
     if email:
         unique = r.hset(_emailsKey(), mapping={
@@ -374,9 +386,10 @@ def register_unique_email_and_phone_number(user_id, user):
         }) == 1
         mapping["email"] = email
     if (not email or (email and unique)) and phone_number:
-        unique = r.hset(_phoneNumbersKey(), mapping={
+        hs = r.hset(_phoneNumbersKey(), mapping={
             phone_number: ids
-        }) == 1
+        })
+        unique = hs == 1
         mapping["phone_number"] = phone_number
     if mapping:
         mapping["ion_id"] = ion_id
@@ -394,7 +407,7 @@ def rollback_unique_email_and_phone_number(user_id, user):
         r.hdel(_phoneNumbersKey(), phone_number)
     r.hdel(_userKey(user_id), "email", "phone_number")
 
-def ionID(phone_number, email):
+def ionID(email, phone_number):
     data = None
     if email:
         id = _get_ionID(_emailsKey(), email)
